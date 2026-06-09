@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cyber Battleship Tactical Command</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <header class="hud-header">
+        <h1>TACTICAL COMMAND CONSOLE</h1>
+        <div id="status-banner" class="status-turn">YOUR TURN</div>
+    </header>
+
+    <main class="game-container">
+        <section class="grid-wrapper">
+            <h2>YOUR FLEET</h2>
+            <div id="player-grid" class="battle-grid"></div>
+        </section>
+
+        <section class="grid-wrapper">
+            <h2>OPPONENT TARGET MAP</h2>
+            <div id="opponent-grid" class="battle-grid hostile"></div>
+        </section>
+    </main>
+
+    <footer class="console-footer">
+        <h3>📡 LIVE WEBHOOK LOGS</h3>
+        <div id="webhook-logs" class="logs-window">> System online. Awaiting data stream...</div>
+    </footer>
+
+    <script>
+        const playerContainer = document.getElementById('player-grid');
+        const opponentContainer = document.getElementById('opponent-grid');
+        const statusBanner = document.getElementById('status-banner');
+        const logsWindow = document.getElementById('webhook-logs');
+
+        function logEvent(text) {
+            logsWindow.innerHTML += `<br>> ${text}`;
+            logsWindow.scrollTop = logsWindow.scrollHeight;
+        }
+
+        async function drawGrids() {
+            const res = await fetch('/api/state');
+            const state = await res.json();
+
+            // Update Status Banner
+            statusBanner.innerText = state.turn === 'player' ? "YOUR TURN" : "OPPONENT'S TURN";
+            statusBanner.className = state.turn === 'player' ? "status-turn your-turn" : "status-turn opponent-turn";
+
+            // Render Player Grid
+            playerContainer.innerHTML = '';
+            for(let r=0; r<10; r++) {
+                for(let c=0; c<10; c++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    if (state.playerGrid[r][c] === 'S') cell.classList.add('ship');
+                    if (state.playerGrid[r][c] === 'X') cell.classList.add('hit');
+                    if (state.playerGrid[r][c] === 'O') cell.classList.add('miss');
+                    playerContainer.appendChild(cell);
+                }
+            }
+
+            // Render Opponent Target Grid
+            opponentContainer.innerHTML = '';
+            for(let r=0; r<10; r++) {
+                for(let c=0; c<10; c++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell interactive';
+                    if (state.opponentGrid[r][c] === 'X') cell.classList.add('hit');
+                    if (state.opponentGrid[r][c] === 'O') cell.classList.add('miss');
+                    
+                    // Bind click event for firing
+                    cell.addEventListener('click', () => firePayload(r, c, state.turn));
+                    opponentContainer.appendChild(cell);
+                }
+            }
+        }
+
+        async function firePayload(row, col, currentTurn) {
+            if (currentTurn !== 'player') return;
+
+            logEvent(`POST payload dispatched to /api/fire -> Coords: [Row ${row}, Col ${col}]`);
+            
+            const response = await fetch('/api/fire', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ row, col })
+            });
+            const data = await response.json();
+            
+            logEvent(`Webhook Response: Shot registered as a [${data.result.toUpperCase()}]`);
+            drawGrids(); // Redraw with new states
+
+            // Polling interval loop to check when enemy responds
+            setTimeout(async function poll() {
+                await drawGrids();
+                const checkRes = await fetch('/api/state');
+                const checkState = await checkRes.json();
+                if (checkState.turn === 'opponent') {
+                    setTimeout(poll, 300);
+                } else {
+                    logEvent("Inbound payload received: Opponent completed fire sequence.");
+                }
+            }, 1100);
+        }
+
+        // Initialize display
+        drawGrids();
+    </script>
+</body>
+</html>
