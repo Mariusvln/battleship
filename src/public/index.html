@@ -3,111 +3,254 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cyber Battleship Tactical Command</title>
-    <link rel="stylesheet" href="style.css">
+    <title>Singleton Room Battleship</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .grid-cell { aspect-ratio: 1 / 1; transition: all 0.15s ease-in-out; }
+    </style>
 </head>
-<body>
+<body class="bg-slate-950 text-slate-100 font-sans min-h-screen flex flex-col items-center p-4 selection:bg-cyan-500 selection:text-slate-950">
 
-    <header class="hud-header">
-        <h1>TACTICAL COMMAND CONSOLE</h1>
-        <div id="status-banner" class="status-turn">YOUR TURN</div>
+    <header class="text-center my-6">
+        <h1 class="text-4xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">SINGLE-SESSION CORE</h1>
+        <p class="text-slate-500 text-xs mt-1 font-mono uppercase">Universal Server Space Implementation</p>
     </header>
 
-    <main class="game-container">
-        <section class="grid-wrapper">
-            <h2>YOUR FLEET</h2>
-            <div id="player-grid" class="battle-grid"></div>
-        </section>
+    <!-- Lobby View Dashboard -->
+    <div id="lobby-panel" class="w-full max-w-md bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl space-y-6">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-4">
+            <div>
+                <h2 class="text-lg font-bold text-slate-200">Global Operational Grid</h2>
+                <p class="text-xs text-slate-500 font-mono" id="client-id-tag">Connecting systems...</p>
+            </div>
+            <span id="slot-counter" class="bg-slate-950 text-cyan-400 border border-cyan-500/30 px-3 py-1 rounded-full font-mono font-bold text-sm">
+                0/2 Players
+            </span>
+        </div>
 
-        <section class="grid-wrapper">
-            <h2>OPPONENT TARGET MAP</h2>
-            <div id="opponent-grid" class="battle-grid hostile"></div>
-        </section>
-    </main>
+        <div class="bg-slate-950 p-4 rounded-xl border border-slate-800/60 font-mono text-xs space-y-2 text-slate-400">
+            <div class="flex justify-between"><span>Session Status:</span><span id="session-status-label" class="text-amber-400 font-bold">-</span></div>
+        </div>
 
-    <footer class="console-footer">
-        <h3>📡 LIVE WEBHOOK LOGS</h3>
-        <div id="webhook-logs" class="logs-window">> System online. Awaiting data stream...</div>
-    </footer>
+        <button id="btn-join-session" class="w-full bg-cyan-500 hover:bg-cyan-600 active:scale-[0.99] text-slate-950 font-black tracking-wide py-3 px-4 rounded-xl shadow-lg shadow-cyan-500/10 transition-all text-sm uppercase">
+            Request Session Insertion
+        </button>
+    </div>
+
+    <!-- Live Game Workspace Area Matrix -->
+    <div id="game-workspace" class="hidden w-full max-w-5xl flex flex-col items-center">
+        <div class="w-full max-w-md bg-slate-900 border border-slate-800 px-6 py-3 rounded-2xl mb-6 flex justify-between items-center shadow-md">
+            <div class="font-mono text-xs text-slate-400">
+                System Phase: <span id="arena-phase-text" class="text-cyan-400 font-bold uppercase">CONNECTING</span>
+            </div>
+            <button id="btn-leave-session" class="bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-white border border-red-500/20 text-xs font-bold px-3 py-1.5 rounded-lg transition-all uppercase tracking-wider">
+                Leave Session
+            </button>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-12 w-full">
+            <!-- Strategic Board View -->
+            <div class="flex flex-col items-center">
+                <h3 class="text-sm font-bold tracking-widest text-slate-400 uppercase mb-3">Self Defense Coordinates</h3>
+                <div id="self-board" class="grid grid-cols-10 gap-1 bg-slate-900 p-2 rounded-xl border border-slate-800 w-full max-w-md shadow-inner"></div>
+                
+                <div id="placement-control-bay" class="mt-4 w-full text-center">
+                    <button id="btn-lock-ships" class="w-full max-w-xs bg-gradient-to-r from-emerald-500 to-teal-600 text-slate-950 font-black text-xs py-2.5 px-4 rounded-lg tracking-widest uppercase hover:brightness-110 transition-all shadow-md">
+                        Lock Strategic Deployment
+                    </button>
+                </div>
+            </div>
+
+            <!-- Strike Target Control Matrix -->
+            <div class="flex flex-col items-center">
+                <h3 class="text-sm font-bold tracking-widest text-slate-400 uppercase mb-3">Kinetic Target Vector Grid</h3>
+                <div id="opponent-board" class="grid grid-cols-10 gap-1 bg-slate-900 p-2 rounded-xl border border-slate-800 w-full max-w-md shadow-inner opacity-40 pointer-events-none"></div>
+                <p id="turn-alert-banner" class="mt-4 text-xs font-mono font-bold tracking-widest text-amber-500 text-center uppercase min-h-[1.5rem]"></p>
+            </div>
+        </div>
+    </div>
 
     <script>
-        const playerContainer = document.getElementById('player-grid');
-        const opponentContainer = document.getElementById('opponent-grid');
-        const statusBanner = document.getElementById('status-banner');
-        const logsWindow = document.getElementById('webhook-logs');
+        let ws;
+        let myUserId = null;
+        let isMyTurn = false;
 
-        function logEvent(text) {
-            logsWindow.innerHTML += `<br>> ${text}`;
-            logsWindow.scrollTop = logsWindow.scrollHeight;
+        // Static Testing Setup matrix layout to maintain immediate execution loops
+        const fixedStrategicPlan = [
+            { name: 'carrier', x: 0, y: 1, size: 5, orientation: 'H' },
+            { name: 'battleship', x: 2, y: 3, size: 4, orientation: 'H' },
+            { name: 'destroyer', x: 5, y: 5, size: 3, orientation: 'V' },
+            { name: 'submarine', x: 1, y: 7, size: 3, orientation: 'H' },
+            { name: 'patrol', x: 7, y: 9, size: 2, orientation: 'H' }
+        ];
+
+        // Connect to internal engine directly on load to populate current live stats dashboard
+        initSocketEngine();
+
+        function initSocketEngine() {
+            const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+            ws = new WebSocket(`${protocol}://${window.location.host}`);
+
+            ws.onmessage = (event) => {
+                const packet = JSON.parse(event.data);
+                handleServerMatrixMessage(packet);
+            };
+
+            ws.onclose = () => {
+                setTimeout(initSocketEngine, 2000); // Auto-retry connection loop tracking
+            };
         }
 
-        async function drawGrids() {
-            const res = await fetch('/api/state');
-            const state = await res.json();
+        function buildDomMatrices() {
+            const selfBoard = document.getElementById('self-board');
+            const oppBoard = document.getElementById('opponent-board');
+            selfBoard.innerHTML = '';
+            oppBoard.innerHTML = '';
 
-            // Update Status Banner
-            statusBanner.innerText = state.turn === 'player' ? "YOUR TURN" : "OPPONENT'S TURN";
-            statusBanner.className = state.turn === 'player' ? "status-turn your-turn" : "status-turn opponent-turn";
+            for (let y = 0; y < 10; y++) {
+                for (let x = 0; x < 10; x++) {
+                    const selfCell = document.createElement('div');
+                    selfCell.className = `grid-cell bg-slate-950 rounded-md border border-slate-800/40`;
+                    selfCell.dataset.x = x; selfCell.dataset.y = y;
+                    selfBoard.appendChild(selfCell);
 
-            // Render Player Grid
-            playerContainer.innerHTML = '';
-            for(let r=0; r<10; r++) {
-                for(let c=0; c<10; c++) {
-                    const cell = document.createElement('div');
-                    cell.className = 'cell';
-                    if (state.playerGrid[r][c] === 'S') cell.classList.add('ship');
-                    if (state.playerGrid[r][c] === 'X') cell.classList.add('hit');
-                    if (state.playerGrid[r][c] === 'O') cell.classList.add('miss');
-                    playerContainer.appendChild(cell);
+                    const oppCell = document.createElement('div');
+                    oppCell.className = `grid-cell bg-slate-950 hover:bg-slate-800 border border-slate-800/40 rounded-md cursor-crosshair transition-all`;
+                    oppCell.dataset.x = x; oppCell.dataset.y = y;
+                    oppCell.addEventListener('click', () => dispatchFireOrder(x, y));
+                    oppBoard.appendChild(oppCell);
+                }
+            }
+        }
+
+        function handleServerMatrixMessage(packet) {
+            const { type, payload, message } = packet;
+
+            if (type === 'ERROR') {
+                alert(message);
+                return;
+            }
+
+            if (type === 'INIT_CLIENT') {
+                myUserId = payload.userId;
+                document.getElementById('client-id-tag').innerText = `ID: SYS-${myUserId.substring(0, 8).toUpperCase()}`;
+            }
+
+            if (type === 'SESSION_STATUS_UPDATE') {
+                document.getElementById('slot-counter').innerText = `${payload.playerCount}/2 PLAYERS`;
+                document.getElementById('session-status-label').innerText = payload.status;
+                
+                if (payload.status === 'PLACEMENT') {
+                    document.getElementById('arena-phase-text').innerText = "PLACEMENT EXECUTION PHASE";
                 }
             }
 
-            // Render Opponent Target Grid
-            opponentContainer.innerHTML = '';
-            for(let r=0; r<10; r++) {
-                for(let c=0; c<10; c++) {
-                    const cell = document.createElement('div');
-                    cell.className = 'cell interactive';
-                    if (state.opponentGrid[r][c] === 'X') cell.classList.add('hit');
-                    if (state.opponentGrid[r][c] === 'O') cell.classList.add('miss');
-                    
-                    // Bind click event for firing
-                    cell.addEventListener('click', () => firePayload(r, c, state.turn));
-                    opponentContainer.appendChild(cell);
-                }
+            if (type === 'JOIN_SUCCESS') {
+                document.getElementById('lobby-panel').classList.add('hidden');
+                document.getElementById('game-workspace').classList.remove('hidden');
+                buildDomMatrices();
+                renderLocalPreview();
             }
-        }
 
-        async function firePayload(row, col, currentTurn) {
-            if (currentTurn !== 'player') return;
+            if (type === 'PLACEMENT_CONFIRMED') {
+                document.getElementById('placement-control-bay').innerHTML = `
+                    <span class="text-xs font-mono font-bold text-emerald-400 tracking-widest uppercase animate-pulse">
+                        ■ MATRIX SIGNALS LOCKED. WAITING FOR OPPONENT FORMED CONFIGS.
+                    </span>`;
+            }
 
-            logEvent(`POST payload dispatched to /api/fire -> Coords: [Row ${row}, Col ${col}]`);
-            
-            const response = await fetch('/api/fire', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ row, col })
-            });
-            const data = await response.json();
-            
-            logEvent(`Webhook Response: Shot registered as a [${data.result.toUpperCase()}]`);
-            drawGrids(); // Redraw with new states
+            if (type === 'TURN_UPDATE') {
+                isMyTurn = payload.isYourTurn;
+                document.getElementById('arena-phase-text').innerText = "COMBAT PROTOCOL ENFORCED";
+                const oppGrid = document.getElementById('opponent-board');
 
-            // Polling interval loop to check when enemy responds
-            setTimeout(async function poll() {
-                await drawGrids();
-                const checkRes = await fetch('/api/state');
-                const checkState = await checkRes.json();
-                if (checkState.turn === 'opponent') {
-                    setTimeout(poll, 300);
+                if (isMyTurn) {
+                    oppGrid.classList.remove('pointer-events-none', 'opacity-40');
+                    document.getElementById('turn-alert-banner').innerText = "» INTEL ADVISES TURN WINDOW OPEN: ATTACK «";
+                    document.getElementById('turn-alert-banner').className = "mt-4 text-xs font-mono font-bold tracking-widest text-cyan-400 text-center uppercase";
                 } else {
-                    logEvent("Inbound payload received: Opponent completed fire sequence.");
+                    oppGrid.classList.add('pointer-events-none', 'opacity-40');
+                    document.getElementById('turn-alert-banner').innerText = "WARNING: INCOMING FIRING CYCLES CALCULATED";
+                    document.getElementById('turn-alert-banner').className = "mt-4 text-xs font-mono font-bold tracking-widest text-amber-500 text-center uppercase animate-pulse";
                 }
-            }, 1100);
+            }
+
+            if (type === 'FIRE_RESULT') {
+                const { x, y, hit, target } = payload;
+                const gridElement = target === 'opponent' ? document.getElementById('opponent-board') : document.getElementById('self-board');
+                const cell = gridElement.querySelector(`[data-x="${x}"][data-y="${y}"]`);
+                
+                if (cell) {
+                    if (hit) {
+                        cell.className = "grid-cell bg-red-600 border border-red-400 rounded-md shadow-lg shadow-red-600/50 scale-[0.95]";
+                    } else {
+                        cell.className = "grid-cell bg-slate-700 border border-slate-600 rounded-md scale-[0.95]";
+                    }
+                }
+            }
+
+            if (type === 'OPPONENT_TEMPORARILY_OFFLINE') {
+                document.getElementById('turn-alert-banner').innerText = `⚠️ ${message}`;
+                document.getElementById('turn-alert-banner').className = "mt-4 text-xs font-mono font-bold tracking-widest text-red-500 text-center uppercase animate-pulse";
+                document.getElementById('opponent-board').classList.add('pointer-events-none', 'opacity-40');
+            }
+
+            if (type === 'GAME_OVER') {
+                const absoluteVictory = payload.winner === myUserId;
+                alert(absoluteVictory ? "MATCH RESOLVED: STRATEGIC VICTORY LOGGED." : "MATCH RESOLVED: FLEET ENTIRELY DESTROYED.");
+            }
+
+            if (type === 'SESSION_RESET') {
+                alert(`Session Disrupted: ${message}`);
+                // Hard reset dynamic interface components back to lobby state tracking
+                document.getElementById('game-workspace').classList.add('hidden');
+                document.getElementById('lobby-panel').classList.remove('hidden');
+                document.getElementById('placement-control-bay').innerHTML = `
+                    <button id="btn-lock-ships" class="w-full max-w-xs bg-gradient-to-r from-emerald-500 to-teal-600 text-slate-950 font-black text-xs py-2.5 px-4 rounded-lg tracking-widest uppercase hover:brightness-110 transition-all shadow-md">
+                        Lock Strategic Deployment
+                    </button>`;
+                // Re-bind dynamic execution events listener on elements recreated inside UI states
+                document.getElementById('btn-lock-ships').addEventListener('click', dispatchPlacementConfiguration);
+            }
         }
 
-        // Initialize display
-        drawGrids();
+        function renderLocalPreview() {
+            const selfGrid = document.getElementById('self-board');
+            fixedStrategicPlan.forEach(ship => {
+                for (let i = 0; i < ship.size; i++) {
+                    let nx = ship.x + (ship.orientation === 'H' ? i : 0);
+                    let ny = ship.y + (ship.orientation === 'V' ? i : 0);
+                    const cell = selfGrid.querySelector(`[data-x="${nx}"][data-y="${ny}"]`);
+                    if (cell) {
+                        cell.className = "grid-cell bg-cyan-950 border border-cyan-500 rounded-md shadow-md shadow-cyan-500/10";
+                    }
+                }
+            });
+        }
+
+        function dispatchFireOrder(x, y) {
+            if (!isMyTurn) return;
+            ws.send(JSON.stringify({ type: 'FIRE_SHOT', payload: { x, y } }));
+        }
+
+        function dispatchPlacementConfiguration() {
+            ws.send(JSON.stringify({ type: 'PLACE_SHIPS', payload: { ships: fixedStrategicPlan } }));
+        }
+
+        // --- EXPLICIT BUTTON BINDINGS INTERFACES ---
+        document.getElementById('btn-join-session').addEventListener('click', () => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'JOIN_SESSION' }));
+            }
+        });
+
+        document.getElementById('btn-leave-session').addEventListener('click', () => {
+            if (confirm("Confirm system command processing to exit active battlefield? This destroys the session room state for all.")) {
+                ws.send(JSON.stringify({ type: 'LEAVE_SESSION' }));
+            }
+        });
+
+        document.getElementById('btn-lock-ships').addEventListener('click', dispatchPlacementConfiguration);
     </script>
 </body>
 </html>
