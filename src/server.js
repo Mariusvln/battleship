@@ -10,19 +10,22 @@ const app = express();
 const server = createServer(app);
 const wss = new WebSocketServer({ server });
 
+// --- FIXED ASSET ROUTING DIRECTORY ---
+// This ensures Express reads the 'public' folder right next to your server file
 app.use(express.static(path.join(__dirname, 'public')));
+// Fallback if public is at your repository root level instead:
+app.use(express.static(path.join(__dirname, '../public')));
 
-// --- SINGLETON SESSION ARCHITECTURE ---
 let globalSession = createFreshSession();
-let disconnectTimers = new Map(); // Tracks grace windows for user recovery
+let disconnectTimers = new Map();
 
 function createFreshSession() {
     return {
-        status: 'LOBBY', // LOBBY, PLACEMENT, BATTLE, FINISHED
-        players: [],     // Array of live WebSocket objects (Max 2)
-        userIds: [],     // Historical trace of registered user strings in session
+        status: 'LOBBY',
+        players: [],
+        userIds: [],
         turnIdx: 0,
-        gameState: {}    // Holds structural grid maps
+        gameState: {}
     };
 }
 
@@ -30,7 +33,6 @@ function createEmptyBoard() {
     return Array(10).fill(null).map(() => Array(10).fill(0));
 }
 
-// --- GLOBAL STATE SYNCHRONIZATION ---
 function broadcastSessionStatus() {
     const payload = {
         status: globalSession.status,
@@ -38,9 +40,7 @@ function broadcastSessionStatus() {
         slotsConnected: globalSession.userIds
     };
     wss.clients.forEach(client => {
-        if (client.readyState === 1) {
-            client.send(JSON.stringify({ type: 'SESSION_STATUS_UPDATE', payload }));
-        }
+        if (client.readyState === 1) client.send(JSON.stringify({ type: 'SESSION_STATUS_UPDATE', payload }));
     });
 }
 
@@ -54,15 +54,12 @@ function sendTurnUpdate() {
 }
 
 function resetEntireSession(reasonMessage) {
-    // Clear any dangling disconnection timers
     for (let timer of disconnectTimers.values()) clearTimeout(timer);
     disconnectTimers.clear();
 
-    // Alert all connected clients
     wss.clients.forEach(client => {
         if (client.readyState === 1) {
             client.send(JSON.stringify({ type: 'SESSION_RESET', message: reasonMessage }));
-            // Reset client bindings
             client.isInSession = false;
         }
     });
@@ -71,12 +68,10 @@ function resetEntireSession(reasonMessage) {
     broadcastSessionStatus();
 }
 
-// --- WEBSOCKET ENGINE ---
 wss.on('connection', (ws) => {
     ws.userId = uuidv4();
     ws.isInSession = false;
 
-    // Immediately inform the new connection of the current global space state
     ws.send(JSON.stringify({ type: 'INIT_CLIENT', payload: { userId: ws.userId } }));
     broadcastSessionStatus();
 
@@ -85,12 +80,27 @@ wss.on('connection', (ws) => {
             const packet = JSON.parse(message);
             handleClientAction(ws, packet);
         } catch (err) {
-            ws.send(JSON.stringify({ type: 'ERROR', message: 'Malformed frame data dropped.' }));
+            ws.send(JSON.stringify({ type: 'ERROR', message: 'Malformed data dropped.' }));
         }
     });
 
     ws.on('close', () => {
-        handleGracefulDisconnect(ws);
+        if (!ws.isInSession) return;
+        globalSession.players = globalSession.players.filter(p => p.userId !== ws.userId);
+
+        const timerId = setTimeout(() => {
+            resetEntireSession(`Recovery window expired for user ${ws.userId.substring(0,5)}.`);
+        }, 60000);
+
+        disconnectTimers.set(ws.userId, timerId);
+
+        globalSession.players.forEach(p => {
+            p.send(JSON.stringify({ 
+                type: 'OPPONENT_TEMPORARILY_OFFLINE', 
+                message: 'Opponent disconnected. 60s recovery window active.' 
+            }));
+        });
+        broadcastSessionStatus();
     });
 });
 
@@ -98,34 +108,23 @@ function handleClientAction(ws, packet) {
     const { type, payload } = packet;
 
     if (type === 'JOIN_SESSION') {
-        // If they are returning from an accidental disconnection/refresh drop
         if (globalSession.userIds.includes(ws.userId)) {
             if (disconnectTimers.has(ws.userId)) {
                 clearTimeout(disconnectTimers.get(ws.userId));
                 disconnectTimers.delete(ws.userId);
             }
-            // Replace old connection with new socket reference
             const oldIdx = globalSession.userIds.indexOf(ws.userId);
             globalSession.players[oldIdx] = ws;
             ws.isInSession = true;
 
             ws.send(JSON.stringify({ type: 'JOIN_SUCCESS' }));
-            
-            // Catch up client on game loop state
-            if (globalSession.status === 'BATTLE') {
-                sendTurnUpdate();
-            } else {
-                broadcastSessionStatus();
-            }
+            if (globalSession.status === 'BATTLE') sendTurnUpdate();
+            else broadcastSessionStatus();
             return;
         }
 
-        // Standard entry block validation rules
-        if (globalSession.players.length >= 2) {
-            return ws.send(JSON.stringify({ type: 'ERROR', message: 'Session is currently full. Spectating/Waiting.' }));
-        }
-        if (globalSession.status !== 'LOBBY' && globalSession.status !== 'PLACEMENT') {
-            return ws.send(JSON.stringify({ type: 'ERROR', message: 'Game already in progress. Cannot hot-join.' }));
+        if (globalSession.players.length >= 2 || (globalSession.status !== 'LOBBY' && globalSession.status !== 'PLACEMENT')) {
+            return ws.send(JSON.stringify({ type: 'ERROR', message: 'Session is full or unavailable.' }));
         }
 
         globalSession.players.push(ws);
@@ -138,9 +137,7 @@ function handleClientAction(ws, packet) {
             ready: false
         };
 
-        if (globalSession.players.length === 2) {
-            globalSession.status = 'PLACEMENT';
-        }
+        if (globalSession.players.length === 2) globalSession.status = 'PLACEMENT';
 
         ws.send(JSON.stringify({ type: 'JOIN_SUCCESS' }));
         broadcastSessionStatus();
@@ -149,30 +146,33 @@ function handleClientAction(ws, packet) {
 
     if (type === 'LEAVE_SESSION') {
         if (!ws.isInSession) return;
-        resetEntireSession(`Player ${ws.userId.substring(0,5)} explicitly left the arena.`);
+        resetEntireSession(`A player explicitly left the session.`);
         return;
     }
 
-    // --- PROTECTED GAME MATRIX ACTIONS ---
     if (!ws.isInSession) return;
 
     if (type === 'PLACE_SHIPS') {
         const pState = globalSession.gameState[ws.userId];
         if (!pState || pState.ready) return;
 
-        const { ships } = payload;
+        const { ships } = payload; 
         const tempBoard = createEmptyBoard();
 
-        // Server-side geometry validation placement rules
-        for (const ship of ships) {
-            for (let i = 0; i < ship.size; i++) {
-                let nx = ship.x + (ship.orientation === 'H' ? i : 0);
-                let ny = ship.y + (ship.orientation === 'V' ? i : 0);
-                if (nx < 0 || nx >= 10 || ny < 0 || ny >= 10 || tempBoard[ny][nx] !== 0) {
-                    return ws.send(JSON.stringify({ type: 'ERROR', message: 'Invalid configuration geometries detected' }));
+        try {
+            for (const ship of ships) {
+                for (let i = 0; i < ship.size; i++) {
+                    let nx = ship.x + (ship.orientation === 'H' ? i : 0);
+                    let ny = ship.y + (ship.orientation === 'V' ? i : 0);
+                    
+                    if (nx < 0 || nx >= 10 || ny < 0 || ny >= 10 || tempBoard[ny][nx] !== 0) {
+                        throw new Error('Collision encountered.');
+                    }
+                    tempBoard[ny][nx] = ship.size;
                 }
-                tempBoard[ny][nx] = ship.size;
             }
+        } catch (e) {
+            return ws.send(JSON.stringify({ type: 'ERROR', message: 'Invalid ship placement received.' }));
         }
 
         pState.board = tempBoard;
@@ -192,26 +192,25 @@ function handleClientAction(ws, packet) {
     if (type === 'FIRE_SHOT') {
         if (globalSession.status !== 'BATTLE') return;
         const activePlayer = globalSession.players[globalSession.turnIdx];
-        if (activePlayer.userId !== ws.userId) return ws.send(JSON.stringify({ type: 'ERROR', message: 'Not your system turn assignment!' }));
+        if (activePlayer.userId !== ws.userId) return ws.send(JSON.stringify({ type: 'ERROR', message: 'Not your turn.' }));
 
         const opponent = globalSession.players[(globalSession.turnIdx + 1) % 2];
         const { x, y } = payload;
 
         if (x < 0 || x >= 10 || y < 0 || y >= 10) return;
-        if (globalSession.gameState[ws.userId].hits[y][x] !== 0) return ws.send(JSON.stringify({ type: 'ERROR', message: 'Target sector locked previously.' }));
+        if (globalSession.gameState[ws.userId].hits[y][x] !== 0) return ws.send(JSON.stringify({ type: 'ERROR', message: 'Already targeted.' }));
 
         const targetCell = globalSession.gameState[opponent.userId].board[y][x];
         let hit = false;
 
         if (targetCell > 0) {
             hit = true;
-            globalSession.gameState[ws.userId].hits[y][x] = 2; // Hit token
-            globalSession.gameState[opponent.userId].board[y][x] = -1; // Damage frame mapping
+            globalSession.gameState[ws.userId].hits[y][x] = 2; 
+            globalSession.gameState[opponent.userId].board[y][x] = -1;
         } else {
-            globalSession.gameState[ws.userId].hits[y][x] = 1; // Miss token
+            globalSession.gameState[ws.userId].hits[y][x] = 1; 
         }
 
-        // Calculate if game win state evaluates true
         const opponentDefeated = globalSession.gameState[opponent.userId].board.every(row => row.every(cell => cell <= 0));
 
         ws.send(JSON.stringify({ type: 'FIRE_RESULT', payload: { x, y, hit, target: 'opponent' } }));
@@ -219,12 +218,8 @@ function handleClientAction(ws, packet) {
 
         if (opponentDefeated) {
             globalSession.status = 'FINISHED';
-            globalSession.players.forEach(p => {
-                p.send(JSON.stringify({ type: 'GAME_OVER', payload: { winner: ws.userId } }));
-            });
-            setTimeout(() => {
-                resetEntireSession("Previous game completed successfully. Operational system recycling done.");
-            }, 5000);
+            globalSession.players.forEach(p => p.send(JSON.stringify({ type: 'GAME_OVER', payload: { winner: ws.userId } })));
+            resetEntireSession("Game over. Resetting global arena session.");
         } else {
             if (!hit) globalSession.turnIdx = (globalSession.turnIdx + 1) % 2;
             sendTurnUpdate();
@@ -232,29 +227,5 @@ function handleClientAction(ws, packet) {
     }
 }
 
-function handleGracefulDisconnect(ws) {
-    if (!ws.isInSession) return;
-
-    // Remove the socket reference from current loop pools
-    globalSession.players = globalSession.players.filter(p => p.userId !== ws.userId);
-
-    // Fire off a 60-second network recovery grace timer
-    const timerId = setTimeout(() => {
-        resetEntireSession(`Player ${ws.userId.substring(0,5)} failed to recover within 60 seconds.`);
-    }, 60000);
-
-    disconnectTimers.set(ws.userId, timerId);
-    
-    // Warn the remaining user inside the session room instantly
-    globalSession.players.forEach(p => {
-        p.send(JSON.stringify({ 
-            type: 'OPPONENT_TEMPORARILY_OFFLINE', 
-            message: 'Opponent connection severed. 60-second recovery timer countdown active.' 
-        }));
-    });
-
-    broadcastSessionStatus();
-}
-
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Battleship Dedicated Singleton Core Server running on port ${PORT}`));
+server.listen(PORT, () => console.log(`Battleship Server executing on port ${PORT}`));

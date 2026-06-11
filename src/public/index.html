@@ -2,255 +2,1099 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Singleton Room Battleship</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Room Battleship</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        .grid-cell { aspect-ratio: 1 / 1; transition: all 0.15s ease-in-out; }
+        /* ── Base ─────────────────────────────────────────────────────────── */
+        * { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+        body { overscroll-behavior: none; }
+
+        .grid-cell {
+            aspect-ratio: 1 / 1;
+            transition: background-color 0.1s ease, box-shadow 0.1s ease;
+            position: relative;
+        }
+
+        /* ── Ship overlay layer ───────────────────────────────────────────── */
+        #self-board { position: relative; }
+        #ship-overlay {
+            position: absolute;
+            top: 8px; left: 8px; /* match p-2 padding of grid */
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .ship-sprite {
+            position: absolute;
+            /* background-image: url('battleship1.png'); */
+            background-size: 100% 100%;
+            background-repeat: no-repeat;
+            image-rendering: pixelated;
+            pointer-events: none;
+            transition: top 0.08s ease, left 0.08s ease;
+            border-radius: 3px;
+            will-change: transform;
+        }
+
+        .ship-sprite[data-ship-id="carrier"]    { background-image: url('battleship1.png'); }
+        .ship-sprite[data-ship-id="battleship"] { background-image: url('battleship3.png'); }
+        .ship-sprite[data-ship-id="destroyer"]  { background-image: url('battleship2.png'); }
+        .ship-sprite[data-ship-id="submarine"]  { background-image: url('battleship4.png'); }
+        .ship-sprite[data-ship-id="patrol"]     { background-image: url('battleship5.png'); }
+
+        .ship-sprite.vertical {
+            transform-origin: top left;
+        }
+
+        /* ── Hit / Miss animations ────────────────────────────────────────── */
+        @keyframes explode {
+            0%   { transform: scale(0.3); opacity: 1; }
+            40%  { transform: scale(1.4); opacity: 0.9; }
+            100% { transform: scale(1);   opacity: 0; }
+        }
+        @keyframes splash {
+            0%   { transform: scale(0) translateY(0); opacity: 1; }
+            70%  { transform: scale(1.2) translateY(-4px); opacity: 0.8; }
+            100% { transform: scale(1)   translateY(0); opacity: 0; }
+        }
+        @keyframes sinkShip {
+            0%   { opacity: 1; transform: translateY(0) rotate(0deg); filter: brightness(1); }
+            30%  { opacity: 0.8; filter: brightness(0.5) sepia(1); }
+            100% { opacity: 0; transform: translateY(6px) rotate(3deg); filter: brightness(0) sepia(1); }
+        }
+
+        .hit-fx {
+            position: absolute; inset: 0;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.1rem; z-index: 5;
+            animation: explode 0.5s ease-out forwards;
+            pointer-events: none;
+        }
+        .miss-fx {
+            position: absolute; inset: 0;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 0.9rem; z-index: 5;
+            animation: splash 0.4s ease-out forwards;
+            pointer-events: none;
+        }
+        .ship-sprite.sinking {
+            animation: sinkShip 1.2s ease-in forwards;
+        }
+
+        /* ── Fleet status panel ───────────────────────────────────────────── */
+        .fleet-status-row { display: flex; align-items: center; gap: 6px; }
+        .fleet-pip {
+            width: 10px; height: 10px; border-radius: 2px;
+            background: #22c55e; border: 1px solid #16a34a;
+            transition: background 0.3s;
+        }
+        .fleet-pip.hit  { background: #f97316; border-color: #ea580c; }
+        .fleet-pip.sunk { background: #374151; border-color: #1f2937; }
+
+        /* ── Drydock ──────────────────────────────────────────────────────── */
+        .ship-dock-item { transition: all 0.15s ease; }
+        .ship-dock-item.selected { border-color: #06b6d4; background-color: rgba(6,182,212,0.1); }
+        .ship-dock-item.placed   { opacity: 0.55; border-color: #334155; }
+
+        /* ── Rematch overlay ──────────────────────────────────────────────── */
+        #rematch-overlay {
+            position: fixed; inset: 0;
+            background: rgba(2,6,23,0.85);
+            backdrop-filter: blur(6px);
+            flex-direction: column;
+            align-items: center; justify-content: center;
+            z-index: 100;
+        }
+
+        /* ── Touch drag ghost ─────────────────────────────────────────────── */
+        #touch-ghost {
+            position: fixed;
+            pointer-events: none;
+            z-index: 200;
+            background-image: url('battleship1.png');
+            background-size: 100% 100%;
+            image-rendering: pixelated;
+            border-radius: 3px;
+            display: none;
+            opacity: 0.85;
+        }
+
+        /* ── Misc ─────────────────────────────────────────────────────────── */
+        .pulse-cyan { animation: pulseCyan 1s ease-in-out infinite; }
+        @keyframes pulseCyan {
+            0%,100% { box-shadow: 0 0 6px rgba(34,211,238,0.4); }
+            50%      { box-shadow: 0 0 18px rgba(34,211,238,0.9); }
+        }
     </style>
 </head>
-<body class="bg-slate-950 text-slate-100 font-sans min-h-screen flex flex-col items-center p-4 selection:bg-cyan-500 selection:text-slate-950">
+<body class="bg-slate-950 text-slate-100 font-sans min-h-screen flex flex-col items-center p-4 select-none">
 
-    <header class="text-center my-6">
-        <h1 class="text-4xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">SINGLE-SESSION CORE</h1>
-        <p class="text-slate-500 text-xs mt-1 font-mono uppercase">Universal Server Space Implementation</p>
-    </header>
+<!-- Touch drag ghost image -->
+<div id="touch-ghost"></div>
 
-    <!-- Lobby View Dashboard -->
-    <div id="lobby-panel" class="w-full max-w-md bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl space-y-6">
-        <div class="flex items-center justify-between border-b border-slate-800 pb-4">
-            <div>
-                <h2 class="text-lg font-bold text-slate-200">Global Operational Grid</h2>
-                <p class="text-xs text-slate-500 font-mono" id="client-id-tag">Connecting systems...</p>
-            </div>
-            <span id="slot-counter" class="bg-slate-950 text-cyan-400 border border-cyan-500/30 px-3 py-1 rounded-full font-mono font-bold text-sm">
-                0/2 Players
-            </span>
+<!-- ── LOBBY ──────────────────────────────────────────────────────────────── -->
+<header class="text-center my-6">
+    <h1 class="text-4xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">BATTLESHIP</h1>
+    <p class="text-slate-500 text-xs mt-1 font-mono uppercase">Interactive Placement Matrix</p>
+</header>
+
+<div id="lobby-panel" class="w-full max-w-md bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl space-y-6">
+    <div class="flex items-center justify-between border-b border-slate-800 pb-4">
+        <div>
+            <h2 class="text-lg font-bold text-slate-200">Global Operational Grid</h2>
+            <p class="text-xs text-slate-500 font-mono" id="client-id-tag">Connecting...</p>
         </div>
+        <span id="slot-counter" class="bg-slate-950 text-cyan-400 border border-cyan-500/30 px-3 py-1 rounded-full font-mono font-bold text-sm">0/2 Players</span>
+    </div>
+    <div class="bg-slate-950 p-4 rounded-xl border border-slate-800/60 font-mono text-xs text-slate-400">
+        <div class="flex justify-between"><span>Session Status:</span><span id="session-status-label" class="text-amber-400 font-bold">-</span></div>
+    </div>
+    <button id="btn-join-session" class="w-full bg-cyan-500 hover:bg-cyan-600 text-slate-950 font-black py-3 rounded-xl tracking-wide text-sm uppercase transition-all">
+        Request Session Insertion
+    </button>
+</div>
 
-        <div class="bg-slate-950 p-4 rounded-xl border border-slate-800/60 font-mono text-xs space-y-2 text-slate-400">
-            <div class="flex justify-between"><span>Session Status:</span><span id="session-status-label" class="text-amber-400 font-bold">-</span></div>
-        </div>
+<!-- ── GAME WORKSPACE ─────────────────────────────────────────────────────── -->
+<div id="game-workspace" class="hidden w-full max-w-5xl flex flex-col items-center">
 
-        <button id="btn-join-session" class="w-full bg-cyan-500 hover:bg-cyan-600 active:scale-[0.99] text-slate-950 font-black tracking-wide py-3 px-4 rounded-xl shadow-lg shadow-cyan-500/10 transition-all text-sm uppercase">
-            Request Session Insertion
-        </button>
+    <div class="w-full max-w-2xl bg-slate-900 border border-slate-800 px-6 py-3 rounded-2xl mb-6 flex justify-between items-center">
+        <div class="font-mono text-xs text-slate-400">Phase: <span id="arena-phase-text" class="text-cyan-400 font-bold uppercase">CONNECTING</span></div>
+        <button id="btn-leave-session" class="bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-white border border-red-500/20 text-xs font-bold px-3 py-1.5 rounded-lg transition-all uppercase">Leave</button>
     </div>
 
-    <!-- Live Game Workspace Area Matrix -->
-    <div id="game-workspace" class="hidden w-full max-w-5xl flex flex-col items-center">
-        <div class="w-full max-w-md bg-slate-900 border border-slate-800 px-6 py-3 rounded-2xl mb-6 flex justify-between items-center shadow-md">
-            <div class="font-mono text-xs text-slate-400">
-                System Phase: <span id="arena-phase-text" class="text-cyan-400 font-bold uppercase">CONNECTING</span>
-            </div>
-            <button id="btn-leave-session" class="bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-white border border-red-500/20 text-xs font-bold px-3 py-1.5 rounded-lg transition-all uppercase tracking-wider">
-                Leave Session
-            </button>
-        </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-8 w-full">
 
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-12 w-full">
-            <!-- Strategic Board View -->
-            <div class="flex flex-col items-center">
-                <h3 class="text-sm font-bold tracking-widest text-slate-400 uppercase mb-3">Self Defense Coordinates</h3>
-                <div id="self-board" class="grid grid-cols-10 gap-1 bg-slate-900 p-2 rounded-xl border border-slate-800 w-full max-w-md shadow-inner"></div>
-                
-                <div id="placement-control-bay" class="mt-4 w-full text-center">
-                    <button id="btn-lock-ships" class="w-full max-w-xs bg-gradient-to-r from-emerald-500 to-teal-600 text-slate-950 font-black text-xs py-2.5 px-4 rounded-lg tracking-widest uppercase hover:brightness-110 transition-all shadow-md">
-                        Lock Strategic Deployment
-                    </button>
+        <!-- LEFT: self board -->
+        <div class="flex flex-col items-center">
+            <h3 class="text-sm font-bold tracking-widest text-slate-400 uppercase mb-3">Your Fleet</h3>
+
+            <!-- Grid wrapper — overlay lives here -->
+            <div class="relative w-full max-w-sm">
+                <div id="self-board" class="grid grid-cols-10 gap-1 bg-slate-900 p-2 rounded-xl border border-slate-800 shadow-inner w-full"></div>
+                <div id="ship-overlay"></div>
+            </div>
+
+            <!-- Placement toolbar -->
+            <div id="placement-action-bar" class="invisible mt-3 flex flex-wrap items-center gap-3 bg-slate-900 border border-slate-800 px-4 py-2 rounded-xl shadow-lg w-full max-w-sm justify-between">
+                <span class="text-xs font-mono text-slate-400">Holding: <span id="staging-ship-name" class="text-cyan-400 font-bold">-</span></span>
+                <div class="flex gap-2">
+                    <button id="btn-rotate" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 px-2.5 py-1.5 rounded-lg text-xs font-bold text-amber-400">🔄 Rotate</button>
+                    <button id="btn-auto-place" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 px-2.5 py-1.5 rounded-lg text-xs font-bold text-violet-400">🎲 Auto</button>
                 </div>
             </div>
 
-            <!-- Strike Target Control Matrix -->
-            <div class="flex flex-col items-center">
-                <h3 class="text-sm font-bold tracking-widest text-slate-400 uppercase mb-3">Kinetic Target Vector Grid</h3>
-                <div id="opponent-board" class="grid grid-cols-10 gap-1 bg-slate-900 p-2 rounded-xl border border-slate-800 w-full max-w-md shadow-inner opacity-40 pointer-events-none"></div>
-                <p id="turn-alert-banner" class="mt-4 text-xs font-mono font-bold tracking-widest text-amber-500 text-center uppercase min-h-[1.5rem]"></p>
+            <!-- Drydock -->
+            <div id="drydock-container" class="mt-4 w-full max-w-sm bg-slate-900 border border-slate-800 p-4 rounded-xl">
+                <div class="flex items-center justify-between mb-3 border-b border-slate-800 pb-1">
+                    <h4 class="text-xs font-mono text-slate-400 uppercase tracking-widest">Drydock Fleet</h4>
+                    <button id="btn-auto-place-all" class="text-[10px] font-mono text-violet-400 hover:text-violet-300 border border-violet-500/30 px-2 py-0.5 rounded">🎲 Auto-place all</button>
+                </div>
+                <div id="drydock-list" class="flex flex-col gap-2"></div>
+                <div id="placement-submit-zone" class="mt-4 hidden">
+                    <button id="btn-lock-ships" class="w-full bg-gradient-to-r from-emerald-500 to-teal-600 text-slate-950 font-black text-xs py-2.5 px-4 rounded-lg tracking-widest uppercase hover:brightness-110 transition-all shadow-md pulse-cyan">
+                        ⚓ Lock Strategic Deployment
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- RIGHT: opponent board + fleet status -->
+        <div class="flex flex-col items-center">
+            <h3 class="text-sm font-bold tracking-widest text-slate-400 uppercase mb-3">Target Vector Grid</h3>
+            <div id="opponent-board" class="grid grid-cols-10 gap-1 bg-slate-900 p-2 rounded-xl border border-slate-800 w-full max-w-sm shadow-inner opacity-40 pointer-events-none"></div>
+            <p id="turn-alert-banner" class="mt-3 text-xs font-mono font-bold tracking-widest text-amber-500 text-center uppercase min-h-[1.5rem]"></p>
+
+            <!-- Fleet status panels (shown during battle) -->
+            <div id="fleet-status-panel" class="hidden mt-4 w-full max-w-sm grid grid-cols-2 gap-3">
+                <div class="bg-slate-900 border border-slate-800 p-3 rounded-xl">
+                    <p class="text-[10px] font-mono text-slate-500 uppercase mb-2">Your Ships</p>
+                    <div id="my-fleet-status" class="flex flex-col gap-1.5"></div>
+                </div>
+                <div class="bg-slate-900 border border-slate-800 p-3 rounded-xl">
+                    <p class="text-[10px] font-mono text-slate-500 uppercase mb-2">Enemy Ships</p>
+                    <div id="enemy-fleet-status" class="flex flex-col gap-1.5"></div>
+                </div>
             </div>
         </div>
     </div>
+</div>
 
-    <script>
-        let ws;
-        let myUserId = null;
-        let isMyTurn = false;
+<!-- ── REMATCH OVERLAY ────────────────────────────────────────────────────── -->
+<div id="rematch-overlay" class="hidden">
+    <div class="text-center space-y-6 p-8 bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl max-w-sm w-full mx-4">
+        <div id="rematch-result-icon" class="text-6xl">🏆</div>
+        <h2 id="rematch-title" class="text-2xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">VICTORY</h2>
+        <p id="rematch-subtitle" class="text-slate-400 text-sm font-mono">Fleet annihilated in 24 salvos.</p>
+        <div class="flex flex-col gap-3">
+            <button id="btn-rematch" class="w-full bg-gradient-to-r from-cyan-500 to-blue-600 text-slate-950 font-black py-3 rounded-xl tracking-wide text-sm uppercase transition-all hover:brightness-110">
+                ⚔️ Rematch
+            </button>
+            <button id="btn-quit-after-game" class="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 font-bold py-2.5 rounded-xl text-sm uppercase transition-all">
+                Leave Session
+            </button>
+        </div>
+    </div>
+</div>
 
-        // Static Testing Setup matrix layout to maintain immediate execution loops
-        const fixedStrategicPlan = [
-            { name: 'carrier', x: 0, y: 1, size: 5, orientation: 'H' },
-            { name: 'battleship', x: 2, y: 3, size: 4, orientation: 'H' },
-            { name: 'destroyer', x: 5, y: 5, size: 3, orientation: 'V' },
-            { name: 'submarine', x: 1, y: 7, size: 3, orientation: 'H' },
-            { name: 'patrol', x: 7, y: 9, size: 2, orientation: 'H' }
-        ];
+<script>
+// ════════════════════════════════════════════════════════════════════════════
+//  STATE
+// ════════════════════════════════════════════════════════════════════════════
+let ws;
+let myUserId     = null;
+let isMyTurn     = false;
+let isGameActive = false;
+let shotCount    = 0;
 
-        // Connect to internal engine directly on load to populate current live stats dashboard
-        initSocketEngine();
+// Per-ship hit tracking  { shipId -> Set of "x,y" strings that have been hit }
+let myShipHits    = {};
+let enemyShipSunk = {}; // shipId -> bool (we infer from server GAME_OVER-adjacent logic)
 
-        function initSocketEngine() {
-            const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-            ws = new WebSocket(`${protocol}://${window.location.host}`);
+// We track how many cells of each enemy ship size have been hit so we can mark sunk
+// Server sends hit/miss but not "which ship". We infer sinking when consecutive hits
+// cover a full ship. For simplicity we track a running enemy hit board and do size matching.
+let enemyHitBoard = Array(10).fill(null).map(() => Array(10).fill(false));
 
-            ws.onmessage = (event) => {
-                const packet = JSON.parse(event.data);
-                handleServerMatrixMessage(packet);
-            };
+const FLEET_TEMPLATE = () => [
+    { id: 'carrier',    name: 'Carrier',     size: 5, x: null, y: null, orientation: 'H', placed: false, hits: 0 },
+    { id: 'battleship', name: 'Battleship',  size: 4, x: null, y: null, orientation: 'H', placed: false, hits: 0 },
+    { id: 'destroyer',  name: 'Destroyer',   size: 3, x: null, y: null, orientation: 'H', placed: false, hits: 0 },
+    { id: 'submarine',  name: 'Submarine',   size: 3, x: null, y: null, orientation: 'H', placed: false, hits: 0 },
+    { id: 'patrol',     name: 'Patrol Boat', size: 2, x: null, y: null, orientation: 'H', placed: false, hits: 0 },
+];
+let fleetInventory = FLEET_TEMPLATE();
 
-            ws.onclose = () => {
-                setTimeout(initSocketEngine, 2000); // Auto-retry connection loop tracking
-            };
-        }
+// Enemy fleet mirror (sizes only — for status panel)
+const ENEMY_SIZES = [5, 4, 3, 3, 2];
+let enemyFleetStatus = ENEMY_SIZES.map((s, i) => ({ id: `e${i}`, size: s, sunk: false, hitsNeeded: s, hitsLanded: 0 }));
 
-        function buildDomMatrices() {
-            const selfBoard = document.getElementById('self-board');
-            const oppBoard = document.getElementById('opponent-board');
-            selfBoard.innerHTML = '';
-            oppBoard.innerHTML = '';
+// Placement drag state
+let selectedShip = null;
+let hoverCell    = null;
+let isDragging   = false;
 
-            for (let y = 0; y < 10; y++) {
-                for (let x = 0; x < 10; x++) {
-                    const selfCell = document.createElement('div');
-                    selfCell.className = `grid-cell bg-slate-950 rounded-md border border-slate-800/40`;
-                    selfCell.dataset.x = x; selfCell.dataset.y = y;
-                    selfBoard.appendChild(selfCell);
+// Touch state
+let touchStartCell = null;
 
-                    const oppCell = document.createElement('div');
-                    oppCell.className = `grid-cell bg-slate-950 hover:bg-slate-800 border border-slate-800/40 rounded-md cursor-crosshair transition-all`;
-                    oppCell.dataset.x = x; oppCell.dataset.y = y;
-                    oppCell.addEventListener('click', () => dispatchFireOrder(x, y));
-                    oppBoard.appendChild(oppCell);
-                }
-            }
-        }
+// Grid geometry cache (filled after build)
+let cellSize = 0;      // px per cell (including gap)
+let gridOriginX = 0;   // self-board left edge
+let gridOriginY = 0;   // self-board top edge
 
-        function handleServerMatrixMessage(packet) {
-            const { type, payload, message } = packet;
+// ════════════════════════════════════════════════════════════════════════════
+//  AUDIO (Web Audio API — no libs)
+// ════════════════════════════════════════════════════════════════════════════
+let audioCtx = null;
+function getAudioCtx() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    return audioCtx;
+}
 
-            if (type === 'ERROR') {
-                alert(message);
-                return;
-            }
+function playHit() {
+    try {
+        const ctx = getAudioCtx();
+        const t = ctx.currentTime;
+        // Low thud
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(120, t);
+        osc.frequency.exponentialRampToValueAtTime(40, t + 0.35);
+        gain.gain.setValueAtTime(0.6, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.start(t); osc.stop(t + 0.4);
+        // Crackle layer
+        const buf = ctx.createBuffer(1, ctx.sampleRate * 0.3, ctx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+        const src = ctx.createBufferSource();
+        const g2  = ctx.createGain();
+        src.buffer = buf; g2.gain.value = 0.25;
+        src.connect(g2); g2.connect(ctx.destination);
+        src.start(t);
+    } catch(e) {}
+}
 
-            if (type === 'INIT_CLIENT') {
-                myUserId = payload.userId;
-                document.getElementById('client-id-tag').innerText = `ID: SYS-${myUserId.substring(0, 8).toUpperCase()}`;
-            }
+function playMiss() {
+    try {
+        const ctx = getAudioCtx();
+        const t = ctx.currentTime;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(600, t);
+        osc.frequency.exponentialRampToValueAtTime(200, t + 0.25);
+        gain.gain.setValueAtTime(0.15, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.start(t); osc.stop(t + 0.3);
+    } catch(e) {}
+}
 
-            if (type === 'SESSION_STATUS_UPDATE') {
-                document.getElementById('slot-counter').innerText = `${payload.playerCount}/2 PLAYERS`;
-                document.getElementById('session-status-label').innerText = payload.status;
-                
-                if (payload.status === 'PLACEMENT') {
-                    document.getElementById('arena-phase-text').innerText = "PLACEMENT EXECUTION PHASE";
-                }
-            }
-
-            if (type === 'JOIN_SUCCESS') {
-                document.getElementById('lobby-panel').classList.add('hidden');
-                document.getElementById('game-workspace').classList.remove('hidden');
-                buildDomMatrices();
-                renderLocalPreview();
-            }
-
-            if (type === 'PLACEMENT_CONFIRMED') {
-                document.getElementById('placement-control-bay').innerHTML = `
-                    <span class="text-xs font-mono font-bold text-emerald-400 tracking-widest uppercase animate-pulse">
-                        ■ MATRIX SIGNALS LOCKED. WAITING FOR OPPONENT FORMED CONFIGS.
-                    </span>`;
-            }
-
-            if (type === 'TURN_UPDATE') {
-                isMyTurn = payload.isYourTurn;
-                document.getElementById('arena-phase-text').innerText = "COMBAT PROTOCOL ENFORCED";
-                const oppGrid = document.getElementById('opponent-board');
-
-                if (isMyTurn) {
-                    oppGrid.classList.remove('pointer-events-none', 'opacity-40');
-                    document.getElementById('turn-alert-banner').innerText = "» INTEL ADVISES TURN WINDOW OPEN: ATTACK «";
-                    document.getElementById('turn-alert-banner').className = "mt-4 text-xs font-mono font-bold tracking-widest text-cyan-400 text-center uppercase";
-                } else {
-                    oppGrid.classList.add('pointer-events-none', 'opacity-40');
-                    document.getElementById('turn-alert-banner').innerText = "WARNING: INCOMING FIRING CYCLES CALCULATED";
-                    document.getElementById('turn-alert-banner').className = "mt-4 text-xs font-mono font-bold tracking-widest text-amber-500 text-center uppercase animate-pulse";
-                }
-            }
-
-            if (type === 'FIRE_RESULT') {
-                const { x, y, hit, target } = payload;
-                const gridElement = target === 'opponent' ? document.getElementById('opponent-board') : document.getElementById('self-board');
-                const cell = gridElement.querySelector(`[data-x="${x}"][data-y="${y}"]`);
-                
-                if (cell) {
-                    if (hit) {
-                        cell.className = "grid-cell bg-red-600 border border-red-400 rounded-md shadow-lg shadow-red-600/50 scale-[0.95]";
-                    } else {
-                        cell.className = "grid-cell bg-slate-700 border border-slate-600 rounded-md scale-[0.95]";
-                    }
-                }
-            }
-
-            if (type === 'OPPONENT_TEMPORARILY_OFFLINE') {
-                document.getElementById('turn-alert-banner').innerText = `⚠️ ${message}`;
-                document.getElementById('turn-alert-banner').className = "mt-4 text-xs font-mono font-bold tracking-widest text-red-500 text-center uppercase animate-pulse";
-                document.getElementById('opponent-board').classList.add('pointer-events-none', 'opacity-40');
-            }
-
-            if (type === 'GAME_OVER') {
-                const absoluteVictory = payload.winner === myUserId;
-                alert(absoluteVictory ? "MATCH RESOLVED: STRATEGIC VICTORY LOGGED." : "MATCH RESOLVED: FLEET ENTIRELY DESTROYED.");
-            }
-
-            if (type === 'SESSION_RESET') {
-                alert(`Session Disrupted: ${message}`);
-                // Hard reset dynamic interface components back to lobby state tracking
-                document.getElementById('game-workspace').classList.add('hidden');
-                document.getElementById('lobby-panel').classList.remove('hidden');
-                document.getElementById('placement-control-bay').innerHTML = `
-                    <button id="btn-lock-ships" class="w-full max-w-xs bg-gradient-to-r from-emerald-500 to-teal-600 text-slate-950 font-black text-xs py-2.5 px-4 rounded-lg tracking-widest uppercase hover:brightness-110 transition-all shadow-md">
-                        Lock Strategic Deployment
-                    </button>`;
-                // Re-bind dynamic execution events listener on elements recreated inside UI states
-                document.getElementById('btn-lock-ships').addEventListener('click', dispatchPlacementConfiguration);
-            }
-        }
-
-        function renderLocalPreview() {
-            const selfGrid = document.getElementById('self-board');
-            fixedStrategicPlan.forEach(ship => {
-                for (let i = 0; i < ship.size; i++) {
-                    let nx = ship.x + (ship.orientation === 'H' ? i : 0);
-                    let ny = ship.y + (ship.orientation === 'V' ? i : 0);
-                    const cell = selfGrid.querySelector(`[data-x="${nx}"][data-y="${ny}"]`);
-                    if (cell) {
-                        cell.className = "grid-cell bg-cyan-950 border border-cyan-500 rounded-md shadow-md shadow-cyan-500/10";
-                    }
-                }
-            });
-        }
-
-        function dispatchFireOrder(x, y) {
-            if (!isMyTurn) return;
-            ws.send(JSON.stringify({ type: 'FIRE_SHOT', payload: { x, y } }));
-        }
-
-        function dispatchPlacementConfiguration() {
-            ws.send(JSON.stringify({ type: 'PLACE_SHIPS', payload: { ships: fixedStrategicPlan } }));
-        }
-
-        // --- EXPLICIT BUTTON BINDINGS INTERFACES ---
-        document.getElementById('btn-join-session').addEventListener('click', () => {
-            if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'JOIN_SESSION' }));
-            }
+function playSink() {
+    try {
+        const ctx = getAudioCtx();
+        const t = ctx.currentTime;
+        [80, 60, 40].forEach((freq, i) => {
+            const osc  = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sawtooth';
+            osc.frequency.value = freq;
+            gain.gain.setValueAtTime(0.5, t + i * 0.12);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + i * 0.12 + 0.5);
+            osc.connect(gain); gain.connect(ctx.destination);
+            osc.start(t + i * 0.12); osc.stop(t + i * 0.12 + 0.55);
         });
+    } catch(e) {}
+}
 
-        document.getElementById('btn-leave-session').addEventListener('click', () => {
-            if (confirm("Confirm system command processing to exit active battlefield? This destroys the session room state for all.")) {
-                ws.send(JSON.stringify({ type: 'LEAVE_SESSION' }));
+function playPlace() {
+    try {
+        const ctx = getAudioCtx();
+        const t = ctx.currentTime;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(440, t);
+        osc.frequency.exponentialRampToValueAtTime(660, t + 0.1);
+        gain.gain.setValueAtTime(0.1, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.start(t); osc.stop(t + 0.15);
+    } catch(e) {}
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  WEBSOCKET
+// ════════════════════════════════════════════════════════════════════════════
+function initSocketEngine() {
+    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(`${protocol}://${window.location.host}`);
+    ws.onmessage = (e) => handleServerMatrixMessage(JSON.parse(e.data));
+    ws.onclose   = () => setTimeout(initSocketEngine, 2000);
+}
+initSocketEngine();
+
+// ════════════════════════════════════════════════════════════════════════════
+//  GRID CONSTRUCTION
+// ════════════════════════════════════════════════════════════════════════════
+function buildDomMatrices() {
+    const selfBoard = document.getElementById('self-board');
+    const oppBoard  = document.getElementById('opponent-board');
+    selfBoard.innerHTML = ''; oppBoard.innerHTML = '';
+
+    for (let y = 0; y < 10; y++) {
+        for (let x = 0; x < 10; x++) {
+            const selfCell = document.createElement('div');
+            selfCell.className = 'grid-cell bg-slate-950 rounded-sm border border-slate-800/40';
+            selfCell.dataset.x = x; selfCell.dataset.y = y;
+            selfCell.addEventListener('mouseenter', () => onCellEnter(x, y));
+            selfCell.addEventListener('mousedown',  (e) => { e.preventDefault(); onCellMouseDown(x, y); });
+            selfCell.addEventListener('mouseup',    () => onCellMouseUp(x, y));
+            selfBoard.appendChild(selfCell);
+
+            const oppCell = document.createElement('div');
+            oppCell.className = 'grid-cell bg-slate-950 border border-slate-800/40 rounded-sm cursor-crosshair';
+            oppCell.dataset.x = x; oppCell.dataset.y = y;
+            oppCell.addEventListener('click', () => dispatchFireOrder(x, y));
+            oppBoard.appendChild(oppCell);
+        }
+    }
+
+    selfBoard.addEventListener('mouseleave', () => { hoverCell = null; refreshSelfBoardGridDisplay(); });
+    document.addEventListener('mouseup', () => { isDragging = false; });
+
+    // Touch events on self-board
+    selfBoard.addEventListener('touchstart',  onTouchStart,  { passive: false });
+    selfBoard.addEventListener('touchmove',   onTouchMove,   { passive: false });
+    selfBoard.addEventListener('touchend',    onTouchEnd,    { passive: false });
+
+    renderDrydockList();
+    rebuildShipOverlay();
+    cacheGridGeometry();
+}
+
+function cacheGridGeometry() {
+    const selfBoard = document.getElementById('self-board');
+    const rect = selfBoard.getBoundingClientRect();
+    const firstCell = selfBoard.querySelector('.grid-cell');
+    if (!firstCell) return;
+    const cellRect = firstCell.getBoundingClientRect();
+    cellSize    = cellRect.width + 1; // +1 for gap
+    gridOriginX = rect.left + 8;     // 8 = p-2
+    gridOriginY = rect.top  + 8;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  SHIP SPRITE OVERLAY
+// ════════════════════════════════════════════════════════════════════════════
+// battleship1.png is 131×37 for a size-4 ship (4 cells wide)
+// We scale it proportionally for each ship size.
+// 131/4 ≈ 32.75 px per unit in the source image.
+// At runtime, one cell = cellSize px.
+const IMG_UNIT_W = 131 / 4; // source px per ship unit
+
+function rebuildShipOverlay() {
+    const overlay = document.getElementById('ship-overlay');
+    overlay.innerHTML = '';
+    overlay.style.width  = '0';
+    overlay.style.height = '0';
+
+    // Re-cache geometry each time (grid may have resized)
+    cacheGridGeometry();
+
+    fleetInventory.forEach(ship => {
+        if (!ship.placed) return;
+        const sprite = createShipSprite(ship);
+        overlay.appendChild(sprite);
+    });
+}
+
+function createShipSprite(ship, isPreview = false) {
+    const sprite = document.createElement('div');
+    sprite.className = 'ship-sprite' + (isPreview ? ' opacity-70' : '');
+    sprite.dataset.shipId = ship.id;
+    positionSprite(sprite, ship.x, ship.y, ship.orientation, ship.size);
+    if (isPreview) sprite.style.transition = 'none';
+    return sprite;
+}
+
+function positionSprite(sprite, gx, gy, ori, size) {
+    const selfBoard = document.getElementById('self-board');
+    const boardRect = selfBoard.getBoundingClientRect();
+
+    const firstCell = selfBoard.querySelector(`[data-x="${gx}"][data-y="${gy}"]`);
+    const lastX = ori === 'H' ? gx + size - 1 : gx;
+    const lastY = ori === 'V' ? gy + size - 1 : gy;
+    const lastCell = selfBoard.querySelector(`[data-x="${lastX}"][data-y="${lastY}"]`);
+    if (!firstCell || !lastCell) return;
+
+    const first = firstCell.getBoundingClientRect();
+    const last  = lastCell.getBoundingClientRect();
+
+    const w = last.right  - first.left;
+    const h = last.bottom - first.top;
+
+    // Per-ship offsets: { H: [offsetX, offsetY], V: [offsetX, offsetY] }
+    const offsets = {
+        carrier:    { H: [0, -4], V: [-4, 0] },
+        battleship: { H: [5, -5], V: [-4, 0] },
+        destroyer:  { H: [-2, -5], V: [-9, -4] },
+        submarine:  { H: [1, -8], V: [-4, 0] },
+        patrol:     { H: [-5, -7], V: [-6, -2] },
+    };
+
+    const shipId = sprite.dataset.shipId;
+    const [ox, oy] = offsets[shipId]?.[ori] ?? [0, 0];
+
+    sprite.style.left = (first.left - boardRect.left + ox) + 'px';
+    sprite.style.top  = (first.top  - boardRect.top  + oy) + 'px';
+
+    if (ori === 'V') {
+        sprite.style.width           = h + 'px';
+        sprite.style.height          = w + 'px';
+        sprite.style.transformOrigin = '0 0';
+        sprite.style.transform       = 'rotate(90deg) translateY(-100%)';
+    } else {
+        sprite.style.width           = w + 'px';
+        sprite.style.height          = h + 'px';
+        sprite.style.transformOrigin = '';
+        sprite.style.transform       = '';
+    }
+}
+
+function updateOrAddSprite(ship) {
+    const overlay = document.getElementById('ship-overlay');
+    let sprite = overlay.querySelector(`[data-ship-id="${ship.id}"]`);
+    if (!sprite) {
+        sprite = document.createElement('div');
+        sprite.className = 'ship-sprite';
+        sprite.dataset.shipId = ship.id;
+        overlay.appendChild(sprite);
+    }
+    positionSprite(sprite, ship.x, ship.y, ship.orientation, ship.size);
+}
+
+function removeSprite(shipId) {
+    const overlay = document.getElementById('ship-overlay');
+    const el = overlay.querySelector(`[data-ship-id="${shipId}"]`);
+    if (el) el.remove();
+}
+
+function sinkSprite(shipId) {
+    const overlay = document.getElementById('ship-overlay');
+    const el = overlay.querySelector(`[data-ship-id="${shipId}"]`);
+    if (el) el.classList.add('sinking');
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MOUSE CELL EVENTS
+// ════════════════════════════════════════════════════════════════════════════
+function onCellEnter(x, y) {
+    hoverCell = { x, y };
+    if (selectedShip) refreshSelfBoardGridDisplay();
+}
+
+function onCellMouseDown(x, y) {
+    if (isGameActive) return;
+    if (!selectedShip) {
+        const shipOnCell = fleetInventory.find(s => s.placed && isShipAtCoordinate(s, x, y));
+        if (shipOnCell) { pickUpShip(shipOnCell); return; }
+    }
+    isDragging = true;
+}
+
+function onCellMouseUp(x, y) {
+    if (!isDragging || !selectedShip) return;
+    isDragging = false;
+    tryPlaceShip(x, y);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  TOUCH EVENTS
+// ════════════════════════════════════════════════════════════════════════════
+function cellFromTouch(touch) {
+    cacheGridGeometry();
+    const x = Math.floor((touch.clientX - gridOriginX) / cellSize);
+    const y = Math.floor((touch.clientY - gridOriginY) / cellSize);
+    if (x < 0 || x >= 10 || y < 0 || y >= 10) return null;
+    return { x, y };
+}
+
+function onTouchStart(e) {
+    if (isGameActive) return;
+    e.preventDefault();
+    const touch = e.touches[0];
+    const cell = cellFromTouch(touch);
+    if (!cell) return;
+    touchStartCell = cell;
+
+    if (!selectedShip) {
+        const shipOnCell = fleetInventory.find(s => s.placed && isShipAtCoordinate(s, cell.x, cell.y));
+        if (shipOnCell) {
+            pickUpShip(shipOnCell);
+            showTouchGhost(touch, shipOnCell);
+            return;
+        }
+    }
+    if (selectedShip) {
+        hoverCell = cell;
+        refreshSelfBoardGridDisplay();
+        showTouchGhost(touch, selectedShip);
+    }
+}
+
+function onTouchMove(e) {
+    if (!selectedShip) return;
+    e.preventDefault();
+    const touch = e.touches[0];
+    const cell = cellFromTouch(touch);
+
+    moveTouchGhost(touch, selectedShip);
+
+    if (cell && (cell.x !== hoverCell?.x || cell.y !== hoverCell?.y)) {
+        hoverCell = cell;
+        refreshSelfBoardGridDisplay();
+    }
+}
+
+function onTouchEnd(e) {
+    hideTouchGhost();
+    if (!selectedShip || !hoverCell) return;
+    tryPlaceShip(hoverCell.x, hoverCell.y);
+}
+
+function showTouchGhost(touch, ship) {
+    const ghost = document.getElementById('touch-ghost');
+    cacheGridGeometry();
+    const w = cellSize * ship.size;
+    const h = cellSize;
+    ghost.style.width  = w + 'px';
+    ghost.style.height = h + 'px';
+    ghost.style.display = 'block';
+    moveTouchGhost(touch, ship);
+}
+function moveTouchGhost(touch, ship) {
+    const ghost = document.getElementById('touch-ghost');
+    cacheGridGeometry();
+    const w = cellSize * ship.size;
+    const h = cellSize;
+    const rot = ship.orientation === 'V' ? 'rotate(90deg)' : '';
+    ghost.style.transform = rot;
+    ghost.style.left = (touch.clientX - w / 2) + 'px';
+    ghost.style.top  = (touch.clientY - h / 2) + 'px';
+}
+function hideTouchGhost() {
+    document.getElementById('touch-ghost').style.display = 'none';
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  SHIP PICKUP / PLACEMENT
+// ════════════════════════════════════════════════════════════════════════════
+function pickUpShip(ship) {
+    ship.placed = false;
+    selectedShip = ship;
+    hoverCell = { x: ship.x ?? 0, y: ship.y ?? 0 };
+    removeSprite(ship.id);
+    document.getElementById('staging-ship-name').innerText = ship.name;
+    document.getElementById('placement-action-bar').classList.remove('invisible');
+    renderDrydockList();
+    refreshSelfBoardGridDisplay();
+}
+
+function tryPlaceShip(x, y) {
+    if (!selectedShip) return;
+    const ori = selectedShip.orientation;
+
+    for (let i = 0; i < selectedShip.size; i++) {
+        const nx = x + (ori === 'H' ? i : 0);
+        const ny = y + (ori === 'V' ? i : 0);
+        if (nx < 0 || nx >= 10 || ny < 0 || ny >= 10) { flashInvalid(x, y); return; }
+        if (fleetInventory.some(s => s.placed && s.id !== selectedShip.id && isShipAtCoordinate(s, nx, ny))) { flashInvalid(x, y); return; }
+    }
+
+    selectedShip.x = x;
+    selectedShip.y = y;
+    selectedShip.placed = true;
+    playPlace();
+    updateOrAddSprite(selectedShip);
+    selectedShip = null;
+    hoverCell = null;
+    document.getElementById('placement-action-bar').classList.add('invisible');
+    renderDrydockList();
+    refreshSelfBoardGridDisplay();
+}
+
+function flashInvalid(x, y) {
+    const selfGrid = document.getElementById('self-board');
+    const ori = selectedShip.orientation;
+    for (let i = 0; i < selectedShip.size; i++) {
+        const nx = x + (ori === 'H' ? i : 0);
+        const ny = y + (ori === 'V' ? i : 0);
+        if (nx < 0 || nx >= 10 || ny < 0 || ny >= 10) continue;
+        const c = selfGrid.querySelector(`[data-x="${nx}"][data-y="${ny}"]`);
+        if (c) {
+            c.classList.add('bg-red-800');
+            setTimeout(() => refreshSelfBoardGridDisplay(), 350);
+        }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  AUTO-PLACE
+// ════════════════════════════════════════════════════════════════════════════
+function autoPlaceAll() {
+    // Reset all first
+    fleetInventory.forEach(s => { s.placed = false; s.x = null; s.y = null; });
+    selectedShip = null;
+
+    const shipsToPlace = [...fleetInventory];
+    let attempts = 0;
+
+    for (const ship of shipsToPlace) {
+        let placed = false;
+        while (!placed && attempts < 1000) {
+            attempts++;
+            const ori = Math.random() < 0.5 ? 'H' : 'V';
+            const maxX = ori === 'H' ? 10 - ship.size : 9;
+            const maxY = ori === 'V' ? 10 - ship.size : 9;
+            const rx = Math.floor(Math.random() * (maxX + 1));
+            const ry = Math.floor(Math.random() * (maxY + 1));
+
+            let conflict = false;
+            for (let i = 0; i < ship.size; i++) {
+                const nx = rx + (ori === 'H' ? i : 0);
+                const ny = ry + (ori === 'V' ? i : 0);
+                if (fleetInventory.some(s => s.placed && s.id !== ship.id && isShipAtCoordinate(s, nx, ny))) {
+                    conflict = true; break;
+                }
             }
-        });
+            if (!conflict) {
+                ship.x = rx; ship.y = ry;
+                ship.orientation = ori;
+                ship.placed = true;
+                placed = true;
+            }
+        }
+    }
 
-        document.getElementById('btn-lock-ships').addEventListener('click', dispatchPlacementConfiguration);
-    </script>
+    document.getElementById('placement-action-bar').classList.add('invisible');
+    renderDrydockList();
+    refreshSelfBoardGridDisplay();
+    rebuildShipOverlay();
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DRYDOCK LIST
+// ════════════════════════════════════════════════════════════════════════════
+function renderDrydockList() {
+    const listContainer = document.getElementById('drydock-list');
+    listContainer.innerHTML = '';
+
+    fleetInventory.forEach(ship => {
+        const isSel = selectedShip?.id === ship.id;
+        const row = document.createElement('div');
+        row.className = `ship-dock-item flex items-center justify-between border border-slate-800 bg-slate-950/40 p-2 rounded-lg text-xs font-mono cursor-pointer
+            ${ship.placed ? 'placed' : ''} ${isSel ? 'selected ring-1 ring-cyan-400' : ''}`;
+
+        const blocks = Array.from({ length: ship.size }, (_, i) => {
+            const hitClass = (ship.hits > i) ? 'bg-red-500' : (isSel ? 'bg-cyan-400' : ship.placed ? 'bg-slate-600' : 'bg-slate-500');
+            return `<span class="inline-block w-3.5 h-3.5 rounded-sm ${hitClass} border border-slate-400/20"></span>`;
+        }).join('');
+
+        row.innerHTML = `
+            <div class="flex flex-col gap-0.5">
+                <span class="font-bold text-slate-300">${ship.name} <span class="text-slate-500">(${ship.size})</span></span>
+                <div class="flex gap-0.5 mt-0.5">${blocks}</div>
+            </div>
+            <span class="text-[10px] ${ship.placed ? 'text-emerald-400' : isSel ? 'text-cyan-300 animate-pulse' : 'text-slate-500'}">
+                ${ship.placed ? `✓ ${ship.orientation}` : isSel ? '⬡ HELD' : '○ DOCK'}
+            </span>`;
+
+        row.addEventListener('click', () => {
+            if (isGameActive) return;
+            if (isSel) {
+                selectedShip = null;
+                document.getElementById('placement-action-bar').classList.add('invisible');
+                renderDrydockList(); refreshSelfBoardGridDisplay(); return;
+            }
+            if (ship.placed) { ship.placed = false; removeSprite(ship.id); }
+            selectedShip = ship;
+            hoverCell = ship.x !== null ? { x: ship.x, y: ship.y } : { x: 0, y: 0 };
+            document.getElementById('staging-ship-name').innerText = ship.name;
+            document.getElementById('placement-action-bar').classList.remove('invisible');
+            renderDrydockList(); refreshSelfBoardGridDisplay();
+        });
+        listContainer.appendChild(row);
+    });
+
+    const allPlaced = fleetInventory.every(s => s.placed);
+    document.getElementById('placement-submit-zone').classList.toggle('hidden', !allPlaced);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  SELF BOARD DISPLAY (cell colours only — sprites are in overlay)
+// ════════════════════════════════════════════════════════════════════════════
+function refreshSelfBoardGridDisplay() {
+    const selfGrid = document.getElementById('self-board');
+    const hasShip  = !!selectedShip;
+
+    selfGrid.querySelectorAll('.grid-cell').forEach(c => {
+        // Preserve hit/miss classes added during battle
+        if (c.dataset.state) return;
+        c.className = `grid-cell bg-slate-950 rounded-sm border border-slate-800/40 ${hasShip ? 'cursor-crosshair' : 'cursor-default'}`;
+    });
+
+    // Hover preview
+    if (selectedShip && hoverCell) {
+        const { x, y } = hoverCell;
+        const ori = selectedShip.orientation;
+        let allValid = true;
+        for (let i = 0; i < selectedShip.size; i++) {
+            const nx = x + (ori === 'H' ? i : 0);
+            const ny = y + (ori === 'V' ? i : 0);
+            if (nx < 0 || nx >= 10 || ny < 0 || ny >= 10) { allValid = false; break; }
+            if (fleetInventory.some(s => s.placed && s.id !== selectedShip.id && isShipAtCoordinate(s, nx, ny))) { allValid = false; break; }
+        }
+        for (let i = 0; i < selectedShip.size; i++) {
+            const nx = x + (ori === 'H' ? i : 0);
+            const ny = y + (ori === 'V' ? i : 0);
+            if (nx < 0 || nx >= 10 || ny < 0 || ny >= 10) continue;
+            const c = selfGrid.querySelector(`[data-x="${nx}"][data-y="${ny}"]`);
+            if (c && !c.dataset.state) {
+                c.className = `grid-cell rounded-sm ${allValid
+                    ? 'bg-cyan-900 border border-cyan-400 shadow-[0_0_5px_rgba(34,211,238,0.5)]'
+                    : 'bg-red-950 border border-red-500'}`;
+            }
+        }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  FLEET STATUS PANEL
+// ════════════════════════════════════════════════════════════════════════════
+function buildFleetStatusPanels() {
+    const myPanel    = document.getElementById('my-fleet-status');
+    const enemyPanel = document.getElementById('enemy-fleet-status');
+    myPanel.innerHTML = ''; enemyPanel.innerHTML = '';
+
+    fleetInventory.forEach(ship => {
+        const row = document.createElement('div');
+        row.className = 'fleet-status-row';
+        const pips = Array.from({ length: ship.size }, (_, i) =>
+            `<span class="fleet-pip" id="mypip-${ship.id}-${i}"></span>`).join('');
+        row.innerHTML = `<span class="text-[10px] text-slate-500 w-16 truncate">${ship.name}</span>${pips}`;
+        myPanel.appendChild(row);
+    });
+
+    enemyFleetStatus.forEach((ef, idx) => {
+        const row = document.createElement('div');
+        row.className = 'fleet-status-row';
+        const pips = Array.from({ length: ef.size }, (_, i) =>
+            `<span class="fleet-pip" id="epip-${idx}-${i}"></span>`).join('');
+        row.innerHTML = `<span class="text-[10px] text-slate-500 w-16">${ef.size}-unit</span>${pips}`;
+        enemyPanel.appendChild(row);
+    });
+
+    document.getElementById('fleet-status-panel').classList.remove('hidden');
+}
+
+function updateMyShipHit(x, y) {
+    const ship = fleetInventory.find(s => s.placed && isShipAtCoordinate(s, x, y));
+    if (!ship) return;
+    ship.hits++;
+    // Update pips
+    for (let i = 0; i < ship.hits && i < ship.size; i++) {
+        const pip = document.getElementById(`mypip-${ship.id}-${i}`);
+        if (pip) pip.classList.add(ship.hits >= ship.size ? 'sunk' : 'hit');
+    }
+    if (ship.hits >= ship.size) {
+        // All pips → sunk
+        for (let i = 0; i < ship.size; i++) {
+            const pip = document.getElementById(`mypip-${ship.id}-${i}`);
+            if (pip) { pip.classList.remove('hit'); pip.classList.add('sunk'); }
+        }
+        sinkSprite(ship.id);
+        playSink();
+    }
+}
+
+function updateEnemyHit(x, y) {
+    enemyHitBoard[y][x] = true;
+    // Try to match a complete ship by flood-fill connected hits
+    // Simple heuristic: find longest run H or V containing (x,y)
+    let bestMatch = null, bestLen = 0;
+    // Check H run
+    let x0 = x; while (x0 > 0 && enemyHitBoard[y][x0-1]) x0--;
+    let x1 = x; while (x1 < 9 && enemyHitBoard[y][x1+1]) x1++;
+    const runH = x1 - x0 + 1;
+    if (runH > bestLen) { bestLen = runH; bestMatch = { ori: 'H', x: x0, y, len: runH }; }
+    // Check V run
+    let y0 = y; while (y0 > 0 && enemyHitBoard[y0-1][x]) y0--;
+    let y1 = y; while (y1 < 9 && enemyHitBoard[y1+1][x]) y1++;
+    const runV = y1 - y0 + 1;
+    if (runV > bestLen) { bestLen = runV; bestMatch = { ori: 'V', x, y: y0, len: runV }; }
+
+    // Check if any unsunk enemy ship of that size matches
+    const candidate = enemyFleetStatus.find(ef => !ef.sunk && ef.size === bestLen);
+    if (candidate) {
+        candidate.hitsLanded++;
+        // Update pips
+        const pip = document.getElementById(`epip-${enemyFleetStatus.indexOf(candidate)}-${candidate.hitsLanded - 1}`);
+        if (pip) pip.classList.add(candidate.hitsLanded >= candidate.size ? 'sunk' : 'hit');
+        if (candidate.hitsLanded >= candidate.size) {
+            candidate.sunk = true;
+            for (let i = 0; i < candidate.size; i++) {
+                const p = document.getElementById(`epip-${enemyFleetStatus.indexOf(candidate)}-${i}`);
+                if (p) { p.classList.remove('hit'); p.classList.add('sunk'); }
+            }
+            playSink();
+        }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  FIRE FX
+// ════════════════════════════════════════════════════════════════════════════
+function applyFireResult(board, x, y, hit) {
+    const cell = board.querySelector(`[data-x="${x}"][data-y="${y}"]`);
+    if (!cell) return;
+
+    cell.dataset.state = hit ? 'hit' : 'miss';
+    cell.style.position = 'relative';
+    cell.className = `grid-cell rounded-sm ${hit ? 'bg-red-900 border border-red-500' : 'bg-slate-900 border border-slate-700'}`;
+
+    const fx = document.createElement('div');
+    if (hit) {
+        fx.className = 'hit-fx';
+        fx.textContent = '💥';
+        playHit();
+    } else {
+        fx.className = 'miss-fx';
+        fx.textContent = '💧';
+        playMiss();
+    }
+    cell.appendChild(fx);
+    setTimeout(() => fx.remove(), 600);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  SERVER MESSAGES
+// ════════════════════════════════════════════════════════════════════════════
+function handleServerMatrixMessage(packet) {
+    const { type, payload, message } = packet;
+    if (type === 'ERROR') return console.warn('Server error:', message);
+
+    if (type === 'INIT_CLIENT') {
+        myUserId = payload.userId;
+        document.getElementById('client-id-tag').innerText = `ID: SYS-${myUserId.substring(0, 8).toUpperCase()}`;
+    }
+
+    if (type === 'SESSION_STATUS_UPDATE') {
+        document.getElementById('slot-counter').innerText = `${payload.playerCount}/2 PLAYERS`;
+        document.getElementById('session-status-label').innerText = payload.status;
+    }
+
+    if (type === 'JOIN_SUCCESS') {
+        document.getElementById('lobby-panel').classList.add('hidden');
+        document.getElementById('game-workspace').classList.remove('hidden');
+        fleetInventory = FLEET_TEMPLATE();
+        enemyFleetStatus = ENEMY_SIZES.map((s, i) => ({ id: `e${i}`, size: s, sunk: false, hitsNeeded: s, hitsLanded: 0 }));
+        enemyHitBoard = Array(10).fill(null).map(() => Array(10).fill(false));
+        shotCount = 0;
+        buildDomMatrices();
+    }
+
+    if (type === 'PLACEMENT_CONFIRMED') {
+        document.getElementById('drydock-container').innerHTML =
+            `<div class="text-center py-4 text-emerald-400 font-mono text-sm animate-pulse">■ AWAITING OPPONENT DEPLOYMENT...</div>`;
+    }
+
+    if (type === 'TURN_UPDATE') {
+        isMyTurn = payload.isYourTurn;
+        isGameActive = true;
+        document.getElementById('placement-action-bar').classList.add('hidden');
+        document.getElementById('arena-phase-text').innerText = 'BATTLE';
+        buildFleetStatusPanels();
+        const oppGrid = document.getElementById('opponent-board');
+        oppGrid.classList.toggle('pointer-events-none', !isMyTurn);
+        oppGrid.classList.toggle('opacity-40', !isMyTurn);
+        document.getElementById('turn-alert-banner').innerText = isMyTurn
+            ? '» YOUR TURN — FIRE «'
+            : 'STANDBY — INCOMING SALVO...';
+    }
+
+    if (type === 'FIRE_RESULT') {
+        shotCount++;
+        const isMine = payload.target === 'opponent';
+        const board  = document.getElementById(isMine ? 'opponent-board' : 'self-board');
+        applyFireResult(board, payload.x, payload.y, payload.hit);
+        if (!isMine && payload.hit) updateMyShipHit(payload.x, payload.y);
+        if (isMine  && payload.hit) updateEnemyHit(payload.x, payload.y);
+    }
+
+    if (type === 'GAME_OVER') {
+        if (!isGameActive) return;
+        const won = payload.winner === myUserId;
+        showRematchScreen(won, shotCount);
+    }
+
+    if (type === 'SESSION_RESET') {
+        document.getElementById('rematch-overlay').classList.add('hidden');
+        window.location.reload();
+    }
+
+    if (type === 'OPPONENT_TEMPORARILY_OFFLINE') {
+        document.getElementById('turn-alert-banner').innerText = '⚠ OPPONENT DISCONNECTED — 60s WINDOW';
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  REMATCH SCREEN
+// ════════════════════════════════════════════════════════════════════════════
+function showRematchScreen(won, shots) {
+    isGameActive = false;
+    const overlay = document.getElementById('rematch-overlay');
+    document.getElementById('rematch-result-icon').textContent  = won ? '🏆' : '💀';
+    document.getElementById('rematch-title').textContent        = won ? 'VICTORY' : 'DEFEATED';
+    document.getElementById('rematch-subtitle').textContent     = `Fleet engagement concluded in ${shots} salvos.`;
+    overlay.style.display = 'flex'
+}
+
+document.getElementById('btn-rematch').addEventListener('click', () => {
+    document.getElementById('rematch-overlay').classList.add('hidden');
+    ws.send(JSON.stringify({ type: 'LEAVE_SESSION' }));
+    // Server will SESSION_RESET → reload
+});
+
+document.getElementById('btn-quit-after-game').addEventListener('click', () => {
+    ws.send(JSON.stringify({ type: 'LEAVE_SESSION' }));
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+//  FIRE
+// ════════════════════════════════════════════════════════════════════════════
+function dispatchFireOrder(x, y) {
+    if (!isMyTurn || !isGameActive) return;
+    const cell = document.getElementById('opponent-board').querySelector(`[data-x="${x}"][data-y="${y}"]`);
+    if (cell?.dataset.state) return; // already fired
+    ws.send(JSON.stringify({ type: 'FIRE_SHOT', payload: { x, y } }));
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  TOOLBAR BUTTONS
+// ════════════════════════════════════════════════════════════════════════════
+document.getElementById('btn-rotate').addEventListener('click', () => {
+    if (!selectedShip) return;
+    selectedShip.orientation = selectedShip.orientation === 'H' ? 'V' : 'H';
+    refreshSelfBoardGridDisplay();
+});
+
+document.getElementById('btn-auto-place').addEventListener('click', () => {
+    if (!selectedShip) return;
+    // Auto-place just the held ship
+    const ship = selectedShip;
+    let placed = false, tries = 0;
+    while (!placed && tries++ < 500) {
+        const ori = Math.random() < 0.5 ? 'H' : 'V';
+        const mx = ori === 'H' ? 10 - ship.size : 9;
+        const my = ori === 'V' ? 10 - ship.size : 9;
+        const rx = Math.floor(Math.random() * (mx + 1));
+        const ry = Math.floor(Math.random() * (my + 1));
+        let ok = true;
+        for (let i = 0; i < ship.size; i++) {
+            const nx = rx + (ori === 'H' ? i : 0);
+            const ny = ry + (ori === 'V' ? i : 0);
+            if (fleetInventory.some(s => s.placed && s.id !== ship.id && isShipAtCoordinate(s, nx, ny))) { ok = false; break; }
+        }
+        if (ok) {
+            ship.orientation = ori; ship.x = rx; ship.y = ry; ship.placed = true;
+            selectedShip = null;
+            document.getElementById('placement-action-bar').classList.add('invisible');
+            updateOrAddSprite(ship);
+            playPlace();
+            placed = true;
+        }
+    }
+    renderDrydockList(); refreshSelfBoardGridDisplay();
+});
+
+document.getElementById('btn-auto-place-all').addEventListener('click', () => {
+    autoPlaceAll();
+});
+
+document.getElementById('btn-join-session').addEventListener('click',  () => ws.send(JSON.stringify({ type: 'JOIN_SESSION' })));
+document.getElementById('btn-leave-session').addEventListener('click', () => ws.send(JSON.stringify({ type: 'LEAVE_SESSION' })));
+document.getElementById('btn-lock-ships').addEventListener('click', () => {
+    ws.send(JSON.stringify({ type: 'PLACE_SHIPS', payload: { ships: fleetInventory.map(s => ({ x: s.x, y: s.y, size: s.size, orientation: s.orientation })) }}));
+});
+
+// Right-click / two-finger tap to rotate held ship
+document.addEventListener('contextmenu', (e) => {
+    if (!selectedShip) return;
+    e.preventDefault();
+    selectedShip.orientation = selectedShip.orientation === 'H' ? 'V' : 'H';
+    refreshSelfBoardGridDisplay();
+});
+
+// Recompute grid geometry on resize (important for mobile)
+window.addEventListener('resize', () => {
+    cacheGridGeometry();
+    rebuildShipOverlay();
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+//  HELPERS
+// ════════════════════════════════════════════════════════════════════════════
+function isShipAtCoordinate(ship, x, y) {
+    for (let i = 0; i < ship.size; i++) {
+        if ((ship.x + (ship.orientation === 'H' ? i : 0)) === x &&
+            (ship.y + (ship.orientation === 'V' ? i : 0)) === y) return true;
+    }
+    return false;
+}
+</script>
 </body>
 </html>
