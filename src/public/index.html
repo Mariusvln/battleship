@@ -406,6 +406,24 @@ function playPlace() {
     } catch(e) {}
 }
 
+function playShipSunkChime() {
+    try {
+        const ctx = getAudioCtx(), t = ctx.currentTime;
+        // Ascending victory arpeggio — arcade feel
+        [330, 415, 494, 659].forEach((freq, i) => {
+            const osc  = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'square';
+            osc.frequency.value = freq;
+            gain.gain.setValueAtTime(0, t + i * 0.07);
+            gain.gain.linearRampToValueAtTime(0.18, t + i * 0.07 + 0.02);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + i * 0.07 + 0.18);
+            osc.connect(gain); gain.connect(ctx.destination);
+            osc.start(t + i * 0.07); osc.stop(t + i * 0.07 + 0.2);
+        });
+    } catch(e) {}
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 //  WEBSOCKET
 // ════════════════════════════════════════════════════════════════════════════
@@ -931,6 +949,7 @@ function updateEnemyHit(x, y) {
                 if (p) { p.classList.remove('hit'); p.classList.add('sunk'); }
             }
             playSink();
+            playShipSunkChime();
         }
     }
 }
@@ -1019,10 +1038,26 @@ function handleServerMatrixMessage(packet) {
         if (!isGameActive) return;
         const won = payload.winner === myUserId;
         isGameActive = false;
-        document.getElementById('rematch-result-icon').textContent = won ? '🏆' : '💀';
-        document.getElementById('rematch-title').textContent       = won ? 'VICTORY' : 'DEFEATED';
-        document.getElementById('rematch-subtitle').textContent    = `Fleet engagement concluded in ${shotCount} salvos.`;
-        document.getElementById('rematch-overlay').style.display  = 'flex';
+
+        // Reveal opponent ships on the opponent board
+        if (payload.opponentShipCells && payload.opponentShipCells.length > 0) {
+            const oppBoard = document.getElementById('opponent-board');
+            payload.opponentShipCells.forEach(({ x, y }) => {
+                const cell = oppBoard.querySelector(`[data-x="${x}"][data-y="${y}"]`);
+                if (cell && !cell.dataset.state) {
+                    cell.className = 'grid-cell rounded-sm border border-slate-500 bg-slate-600';
+                    cell.dataset.state = 'revealed';
+                }
+            });
+        }
+
+        // Small delay so player sees the board reveal before overlay appears
+        setTimeout(() => {
+            document.getElementById('rematch-result-icon').textContent = won ? '🏆' : '💀';
+            document.getElementById('rematch-title').textContent       = won ? 'VICTORY' : 'DEFEATED';
+            document.getElementById('rematch-subtitle').textContent    = `Fleet concluded in ${shotCount} salvos.`;
+            document.getElementById('rematch-overlay').style.display  = 'flex';
+        }, 1800);
     }
 
     if (type === 'SESSION_RESET') {

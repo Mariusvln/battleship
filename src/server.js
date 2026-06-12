@@ -213,13 +213,23 @@ function handleClientAction(ws, packet) {
 
         const opponentDefeated = globalSession.gameState[opponent.userId].board.every(row => row.every(cell => cell <= 0));
 
-        ws.send(JSON.stringify({ type: 'FIRE_RESULT', payload: { x, y, hit, target: 'opponent' } }));
-        opponent.send(JSON.stringify({ type: 'FIRE_RESULT', payload: { x, y, hit, target: 'self' } }));
-
         if (opponentDefeated) {
             globalSession.status = 'FINISHED';
-            globalSession.players.forEach(p => p.send(JSON.stringify({ type: 'GAME_OVER', payload: { winner: ws.userId } })));
-            resetEntireSession("Game over. Resetting global arena session.");
+            // Send each player the opponent's ship layout for the reveal
+            const opponentBoard = globalSession.gameState[opponent.userId].board;
+            const opponentShipCells = [];
+            for (let ry = 0; ry < 10; ry++) {
+                for (let rx = 0; rx < 10; rx++) {
+                    if (opponentBoard[ry][rx] !== 0) opponentShipCells.push({ x: rx, y: ry });
+                }
+            }
+            globalSession.players.forEach(p => p.send(JSON.stringify({
+                type: 'GAME_OVER',
+                payload: {
+                    winner: ws.userId,
+                    opponentShipCells: p.userId === ws.userId ? opponentShipCells : []
+                }
+            })));
         } else {
             if (!hit) globalSession.turnIdx = (globalSession.turnIdx + 1) % 2;
             sendTurnUpdate();
