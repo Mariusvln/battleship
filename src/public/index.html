@@ -5,10 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Room Battleship</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=Cormorant+Garamond:wght@300;400;600&display=swap" rel="stylesheet">
     <style>
         /* ── Base ─────────────────────────────────────────────────────────── */
         * { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
-        body { overscroll-behavior: none; }
+        body {
+            overscroll-behavior: none;
+            background: radial-gradient(ellipse at 20% 50%, #0d1525 0%, #080e1a 60%, #060b14 100%);
+            font-family: 'Cormorant Garamond', serif;
+        }
 
         .grid-cell {
             aspect-ratio: 1 / 1;
@@ -86,16 +91,16 @@
         .fleet-status-row { display: flex; align-items: center; gap: 6px; }
         .fleet-pip {
             width: 10px; height: 10px; border-radius: 2px;
-            background: #22c55e; border: 1px solid #16a34a;
+            background: #c9a84c; border: 1px solid #a07830;
             transition: background 0.3s;
         }
-        .fleet-pip.hit  { background: #f97316; border-color: #ea580c; }
-        .fleet-pip.sunk { background: #374151; border-color: #1f2937; }
+        .fleet-pip.hit  { background: #c0392b; border-color: #922b21; }
+        .fleet-pip.sunk { background: #1e2530; border-color: #141920; }
 
         /* ── Drydock ──────────────────────────────────────────────────────── */
         .ship-dock-item { transition: all 0.15s ease; }
-        .ship-dock-item.selected { border-color: #06b6d4; background-color: rgba(6,182,212,0.1); }
-        .ship-dock-item.placed   { opacity: 0.55; border-color: #334155; }
+        .ship-dock-item.selected { border-color: #c9a84c; background-color: rgba(201,168,76,0.08); }
+        .ship-dock-item.placed   { opacity: 0.55; border-color: #2a3245; }
 
         /* ── Rematch overlay ──────────────────────────────────────────────── */
         #rematch-overlay {
@@ -121,37 +126,37 @@
         }
 
         /* ── Misc ─────────────────────────────────────────────────────────── */
-        .pulse-cyan { animation: pulseCyan 1s ease-in-out infinite; }
-        @keyframes pulseCyan {
-            0%,100% { box-shadow: 0 0 6px rgba(34,211,238,0.4); }
-            50%      { box-shadow: 0 0 18px rgba(34,211,238,0.9); }
+        .pulse-gold { animation: pulseGold 1.5s ease-in-out infinite; }
+        @keyframes pulseGold {
+            0%,100% { box-shadow: 0 0 8px rgba(201,168,76,0.3); }
+            50%      { box-shadow: 0 0 20px rgba(201,168,76,0.7); }
         }
     </style>
 </head>
-<body class="bg-slate-950 text-slate-100 font-sans min-h-screen flex flex-col items-center p-4 select-none">
+<body class="text-slate-200 min-h-screen flex flex-col items-center p-4 select-none">
 
 <!-- Touch drag ghost image -->
 <div id="touch-ghost"></div>
 
 <!-- ── LOBBY ──────────────────────────────────────────────────────────────── -->
 <header class="text-center my-6">
-    <h1 class="text-4xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">BATTLESHIP</h1>
-    <p class="text-slate-500 text-xs mt-1 font-mono uppercase">Interactive Placement Matrix</p>
+    <h1 style="font-family:'Playfair Display',serif" class="text-4xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-yellow-200 via-amber-400 to-yellow-600">Naval Warfare</h1>
+    <p class="text-slate-500 text-xs mt-2 tracking-[0.3em] uppercase">Strategic Fleet Command</p>
 </header>
 
-<div id="lobby-panel" class="w-full max-w-md bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl space-y-6">
-    <div class="flex items-center justify-between border-b border-slate-800 pb-4">
+<div id="lobby-panel" class="w-full max-w-md p-6 rounded-2xl shadow-2xl space-y-6" style="background:rgba(13,21,37,0.9);border:1px solid rgba(201,168,76,0.2);">
+    <div class="flex items-center justify-between pb-4" style="border-bottom:1px solid rgba(201,168,76,0.15);">
         <div>
-            <h2 class="text-lg font-bold text-slate-200">Global Operational Grid</h2>
-            <p class="text-xs text-slate-500 font-mono" id="client-id-tag">Connecting...</p>
+            <h2 class="text-lg font-bold text-slate-200" style="font-family:'Playfair Display',serif">Command Room</h2>
+            <p class="text-xs text-slate-500 tracking-widest" id="client-id-tag">Connecting...</p>
         </div>
-        <span id="slot-counter" class="bg-slate-950 text-cyan-400 border border-cyan-500/30 px-3 py-1 rounded-full font-mono font-bold text-sm">0/2 Players</span>
+        <span id="slot-counter" class="px-3 py-1 rounded-full font-bold text-sm" style="background:rgba(201,168,76,0.1);border:1px solid rgba(201,168,76,0.3);color:#c9a84c;">0/2 Players</span>
     </div>
-    <div class="bg-slate-950 p-4 rounded-xl border border-slate-800/60 font-mono text-xs text-slate-400">
-        <div class="flex justify-between"><span>Session Status:</span><span id="session-status-label" class="text-amber-400 font-bold">-</span></div>
+    <div class="p-4 rounded-xl text-xs text-slate-400 tracking-widest" style="background:rgba(6,10,18,0.6);border:1px solid rgba(201,168,76,0.1);">
+        <div class="flex justify-between"><span>Session Status</span><span id="session-status-label" class="font-bold" style="color:#c9a84c;">-</span></div>
     </div>
-    <button id="btn-join-session" class="w-full bg-cyan-500 hover:bg-cyan-600 text-slate-950 font-black py-3 rounded-xl tracking-wide text-sm uppercase transition-all">
-        Request Session Insertion
+    <button id="btn-join-session" class="w-full font-bold py-3 rounded-xl tracking-widest text-sm uppercase transition-all" style="background:linear-gradient(135deg,#a07830,#c9a84c,#a07830);color:#080e1a;letter-spacing:0.2em;">
+        Enter the Arena
     </button>
 </div>
 
@@ -192,7 +197,7 @@
                 </div>
                 <div id="drydock-list" class="flex flex-col gap-2"></div>
                 <div id="placement-submit-zone" class="mt-4 hidden">
-                    <button id="btn-lock-ships" class="w-full bg-gradient-to-r from-emerald-500 to-teal-600 text-slate-950 font-black text-xs py-2.5 px-4 rounded-lg tracking-widest uppercase hover:brightness-110 transition-all shadow-md pulse-cyan">
+                    <button id="btn-lock-ships" class="w-full bg-gradient-to-r from-emerald-500 to-teal-600 text-slate-950 font-black text-xs py-2.5 px-4 rounded-lg tracking-widest uppercase hover:brightness-110 transition-all shadow-md pulse-gold">
                         ⚓ Lock Strategic Deployment
                     </button>
                 </div>
@@ -221,17 +226,17 @@
 </div>
 
 <!-- ── REMATCH OVERLAY ────────────────────────────────────────────────────── -->
-<div id="rematch-overlay" class="hidden">
-    <div class="text-center space-y-6 p-8 bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl max-w-sm w-full mx-4">
-        <div id="rematch-result-icon" class="text-6xl">🏆</div>
-        <h2 id="rematch-title" class="text-2xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">VICTORY</h2>
-        <p id="rematch-subtitle" class="text-slate-400 text-sm font-mono">Fleet annihilated in 24 salvos.</p>
-        <div class="flex flex-col gap-3">
-            <button id="btn-rematch" class="w-full bg-gradient-to-r from-cyan-500 to-blue-600 text-slate-950 font-black py-3 rounded-xl tracking-wide text-sm uppercase transition-all hover:brightness-110">
-                ⚔️ Rematch
+<div id="rematch-overlay" style="display:none;">
+    <div class="text-center space-y-6 p-8 rounded-3xl shadow-2xl max-w-sm w-full mx-4" style="background:rgba(13,21,37,0.97);border:1px solid rgba(201,168,76,0.25);">
+        <div id="rematch-result-icon" class="text-7xl">🏆</div>
+        <h2 id="rematch-title" class="text-3xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-yellow-200 via-amber-400 to-yellow-600" style="font-family:'Playfair Display',serif;">VICTORY</h2>
+        <p id="rematch-subtitle" class="text-slate-400 text-sm tracking-widest">Fleet annihilated.</p>
+        <div class="flex flex-col gap-3 pt-2">
+            <button id="btn-rematch" class="w-full font-bold py-3 rounded-xl tracking-widest text-sm uppercase transition-all" style="background:linear-gradient(135deg,#a07830,#c9a84c,#a07830);color:#080e1a;">
+                ⚔️ Play Again
             </button>
-            <button id="btn-quit-after-game" class="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 font-bold py-2.5 rounded-xl text-sm uppercase transition-all">
-                Leave Session
+            <button id="btn-main-menu" class="w-full font-bold py-2.5 rounded-xl text-sm uppercase transition-all text-slate-300 hover:text-white" style="background:rgba(255,255,255,0.05);border:1px solid rgba(201,168,76,0.2);">
+                ← Main Menu
             </button>
         </div>
     </div>
@@ -293,27 +298,62 @@ function getAudioCtx() {
 
 function playHit() {
     try {
-        const ctx = getAudioCtx();
-        const t = ctx.currentTime;
-        // Low thud
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(120, t);
-        osc.frequency.exponentialRampToValueAtTime(40, t + 0.35);
-        gain.gain.setValueAtTime(0.6, t);
-        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
-        osc.connect(gain); gain.connect(ctx.destination);
-        osc.start(t); osc.stop(t + 0.4);
-        // Crackle layer
-        const buf = ctx.createBuffer(1, ctx.sampleRate * 0.3, ctx.sampleRate);
+        const ctx = getAudioCtx(), t = ctx.currentTime;
+
+        // Layer 1 — punchy low impact thud
+        const thud = ctx.createOscillator();
+        const thudGain = ctx.createGain();
+        thud.type = 'sine';
+        thud.frequency.setValueAtTime(180, t);
+        thud.frequency.exponentialRampToValueAtTime(55, t + 0.18);
+        thudGain.gain.setValueAtTime(1.0, t);
+        thudGain.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+        thud.connect(thudGain); thudGain.connect(ctx.destination);
+        thud.start(t); thud.stop(t + 0.22);
+
+        // Layer 2 — mid crunch
+        const crunch = ctx.createOscillator();
+        const crunchGain = ctx.createGain();
+        crunch.type = 'square';
+        crunch.frequency.setValueAtTime(90, t);
+        crunch.frequency.exponentialRampToValueAtTime(30, t + 0.15);
+        crunchGain.gain.setValueAtTime(0.35, t);
+        crunchGain.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+        const crunchFilter = ctx.createBiquadFilter();
+        crunchFilter.type = 'lowpass';
+        crunchFilter.frequency.value = 400;
+        crunch.connect(crunchFilter); crunchFilter.connect(crunchGain); crunchGain.connect(ctx.destination);
+        crunch.start(t); crunch.stop(t + 0.2);
+
+        // Layer 3 — sharp attack transient (the "crack")
+        const crack = ctx.createOscillator();
+        const crackGain = ctx.createGain();
+        crack.type = 'sawtooth';
+        crack.frequency.setValueAtTime(800, t);
+        crack.frequency.exponentialRampToValueAtTime(100, t + 0.05);
+        crackGain.gain.setValueAtTime(0.5, t);
+        crackGain.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+        crack.connect(crackGain); crackGain.connect(ctx.destination);
+        crack.start(t); crack.stop(t + 0.06);
+
+        // Layer 4 — noise burst (debris/shrapnel feel)
+        const bufLen = Math.floor(ctx.sampleRate * 0.25);
+        const buf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
         const data = buf.getChannelData(0);
-        for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
-        const src = ctx.createBufferSource();
-        const g2  = ctx.createGain();
-        src.buffer = buf; g2.gain.value = 0.25;
-        src.connect(g2); g2.connect(ctx.destination);
-        src.start(t);
+        for (let i = 0; i < bufLen; i++) {
+            data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufLen, 2.5);
+        }
+        const noise = ctx.createBufferSource();
+        const noiseGain = ctx.createGain();
+        const noiseFilter = ctx.createBiquadFilter();
+        noiseFilter.type = 'bandpass';
+        noiseFilter.frequency.value = 1200;
+        noiseFilter.Q.value = 0.8;
+        noise.buffer = buf;
+        noiseGain.gain.setValueAtTime(0.4, t);
+        noiseGain.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+        noise.connect(noiseFilter); noiseFilter.connect(noiseGain); noiseGain.connect(ctx.destination);
+        noise.start(t);
     } catch(e) {}
 }
 
@@ -978,11 +1018,15 @@ function handleServerMatrixMessage(packet) {
     if (type === 'GAME_OVER') {
         if (!isGameActive) return;
         const won = payload.winner === myUserId;
-        showRematchScreen(won, shotCount);
+        isGameActive = false;
+        document.getElementById('rematch-result-icon').textContent = won ? '🏆' : '💀';
+        document.getElementById('rematch-title').textContent       = won ? 'VICTORY' : 'DEFEATED';
+        document.getElementById('rematch-subtitle').textContent    = `Fleet engagement concluded in ${shotCount} salvos.`;
+        document.getElementById('rematch-overlay').style.display  = 'flex';
     }
 
     if (type === 'SESSION_RESET') {
-        document.getElementById('rematch-overlay').classList.add('hidden');
+        document.getElementById('rematch-overlay').style.display = 'none';
         window.location.reload();
     }
 
@@ -991,25 +1035,14 @@ function handleServerMatrixMessage(packet) {
     }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  REMATCH SCREEN
-// ════════════════════════════════════════════════════════════════════════════
-function showRematchScreen(won, shots) {
-    isGameActive = false;
-    const overlay = document.getElementById('rematch-overlay');
-    document.getElementById('rematch-result-icon').textContent  = won ? '🏆' : '💀';
-    document.getElementById('rematch-title').textContent        = won ? 'VICTORY' : 'DEFEATED';
-    document.getElementById('rematch-subtitle').textContent     = `Fleet engagement concluded in ${shots} salvos.`;
-    overlay.style.display = 'flex'
-}
-
 document.getElementById('btn-rematch').addEventListener('click', () => {
-    document.getElementById('rematch-overlay').classList.add('hidden');
+    document.getElementById('rematch-overlay').style.display = 'none';
     ws.send(JSON.stringify({ type: 'LEAVE_SESSION' }));
-    // Server will SESSION_RESET → reload
+    // SESSION_RESET from server triggers window.location.reload()
 });
 
-document.getElementById('btn-quit-after-game').addEventListener('click', () => {
+document.getElementById('btn-main-menu').addEventListener('click', () => {
+    document.getElementById('rematch-overlay').style.display = 'none';
     ws.send(JSON.stringify({ type: 'LEAVE_SESSION' }));
 });
 
