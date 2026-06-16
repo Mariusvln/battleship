@@ -718,12 +718,6 @@ function pickUpShip(ship) {
     document.getElementById('staging-ship-name').innerText = ship.name;
     document.getElementById('placement-action-bar').classList.remove('invisible');
     renderDrydockList(); refreshSelfBoardGridDisplay();
-    // On mobile, snap ship to a default cell and show floating controls
-    if (isMobileUser()) {
-        const startX = ship.x ?? 0, startY = ship.y ?? 0;
-        hoverCell = { x: startX, y: startY };
-        mobilePlacementMode(ship);
-    }
 }
 
 function tryPlaceShip(x, y) {
@@ -740,10 +734,6 @@ function tryPlaceShip(x, y) {
     updateOrAddSprite(selectedShip);
     selectedShip = null; hoverCell = null;
     document.getElementById('placement-action-bar').classList.add('invisible');
-    // Dismiss mobile overlay if active
-    const mpo = document.getElementById('mobile-place-overlay');
-    if (mpo) mpo.style.display = 'none';
-    mobilePlacementActive = false;
     renderDrydockList(); refreshSelfBoardGridDisplay();
 }
 
@@ -765,7 +755,6 @@ function flashInvalid(x, y) {
 function autoPlaceAll() {
     fleetInventory.forEach(s => { s.placed = false; s.x = null; s.y = null; });
     selectedShip = null;
-    dismissMobilePlacement();
     for (const ship of fleetInventory) {
         let placed = false, tries = 0;
         while (!placed && tries++ < 1000) {
@@ -813,7 +802,6 @@ function renderDrydockList() {
             if (isSel) {
                 selectedShip = null;
                 document.getElementById('placement-action-bar').classList.add('invisible');
-                dismissMobilePlacement();
                 renderDrydockList(); refreshSelfBoardGridDisplay(); return;
             }
             if (ship.placed) { ship.placed = false; removeSprite(ship.id); }
@@ -822,10 +810,6 @@ function renderDrydockList() {
             document.getElementById('staging-ship-name').innerText = ship.name;
             document.getElementById('placement-action-bar').classList.remove('invisible');
             renderDrydockList(); refreshSelfBoardGridDisplay();
-            if (isMobileUser()) {
-                mobilePlacementCell = { x: ship.x ?? 0, y: ship.y ?? 0 };
-                mobilePlacementMode(ship);
-            }
         });
         listContainer.appendChild(row);
     });
@@ -1285,10 +1269,6 @@ window.addEventListener('resize', () => { cacheGridGeometry(); rebuildShipOverla
     if (saved) Object.entries(saved).forEach(([k, v]) => document.documentElement.style.setProperty(k, v));
 
     // ── Toggle button ──────────────────────────────────────────────────────
-    // Hide entirely on mobile — touch users get the mobile placement UI instead
-    const isMobile = () => window.innerWidth < 768 || ('ontouchstart' in window && window.innerWidth < 1024);
-    if (isMobile()) return;
-
     const toggleBtn = document.createElement('button');
     toggleBtn.id = 'theme-toggle-btn';
     toggleBtn.title = 'Theme Editor (Ctrl+E)';
@@ -1610,242 +1590,6 @@ window.addEventListener('resize', () => { cacheGridGeometry(); rebuildShipOverla
 
     refreshRows();
 })();
-
-// ════════════════════════════════════════════════════════════════════════════
-//  MOBILE PLACEMENT MODE
-// ════════════════════════════════════════════════════════════════════════════
-function isMobileUser() {
-    return window.innerWidth < 768 || ('ontouchstart' in window && window.innerWidth < 1024);
-}
-
-let mobilePlacementActive = false;
-let mobilePlacementCell   = { x: 0, y: 0 };
-
-function mobilePlacementMode(ship) {
-    if (!isMobileUser()) return;
-    mobilePlacementActive = true;
-    mobilePlacementCell   = { x: ship.x ?? 0, y: ship.y ?? 0 };
-    hoverCell = { ...mobilePlacementCell };
-
-    // Build or reuse floating controls overlay
-    let overlay = document.getElementById('mobile-place-overlay');
-    if (!overlay) {
-        overlay = document.createElement('div');
-        overlay.id = 'mobile-place-overlay';
-        Object.assign(overlay.style, {
-            position: 'fixed', zIndex: '10000', pointerEvents: 'none',
-            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0',
-        });
-
-        // Direction pad wrapper
-        const dpad = document.createElement('div');
-        dpad.id = 'mpo-dpad';
-        Object.assign(dpad.style, {
-            display: 'grid', gridTemplateColumns: 'repeat(3, 40px)',
-            gridTemplateRows: 'repeat(3, 40px)', gap: '3px',
-            pointerEvents: 'all',
-        });
-
-        const arrows = [
-            { label: '▲', dr: 0, dc: -1, pos: [0,1] },
-            { label: '◀', dr: 0, dc: -1, pos: [1,0] },
-            { label: '◀', dr: 0, dc: -1, pos: [1,0] }, // placeholder — rebuilt below
-            { label: '▼', dr: 1, dc:  0, pos: [2,1] },
-        ];
-        // Build 3x3 grid: up, left, center(rotate), right, down
-        const DPAD_LAYOUT = [
-            { r: 0, c: 1, label: '▲',  dy: -1, dx:  0, action: 'move'   },
-            { r: 1, c: 0, label: '◀',  dy:  0, dx: -1, action: 'move'   },
-            { r: 1, c: 1, label: '↻',  dy:  0, dx:  0, action: 'rotate' },
-            { r: 1, c: 2, label: '▶',  dy:  0, dx:  1, action: 'move'   },
-            { r: 2, c: 1, label: '▼',  dy:  1, dx:  0, action: 'move'   },
-        ];
-
-        for (let row = 0; row < 3; row++) {
-            for (let col = 0; col < 3; col++) {
-                const def = DPAD_LAYOUT.find(d => d.r === row && d.c === col);
-                const btn = document.createElement('button');
-                if (def) {
-                    btn.textContent = def.label;
-                    Object.assign(btn.style, {
-                        width: '40px', height: '40px', borderRadius: '8px', fontSize: '16px',
-                        fontWeight: 'bold', cursor: 'pointer', border: 'none',
-                        background: def.action === 'rotate'
-                            ? 'rgba(201,168,76,0.85)' : 'rgba(30,41,60,0.92)',
-                        color: def.action === 'rotate' ? '#0d1525' : '#c9a84c',
-                        boxShadow: '0 2px 10px rgba(0,0,0,0.5)',
-                        backdropFilter: 'blur(6px)',
-                        WebkitBackdropFilter: 'blur(6px)',
-                        touchAction: 'manipulation',
-                        transition: 'transform 0.1s, opacity 0.1s',
-                    });
-                    btn.dataset.action = def.action;
-                    btn.dataset.dx = def.dx;
-                    btn.dataset.dy = def.dy;
-                    btn.addEventListener('touchstart', (e) => {
-                        e.preventDefault(); e.stopPropagation();
-                        btn.style.transform = 'scale(0.88)';
-                        if (def.action === 'rotate') {
-                            mobilePlacementRotate();
-                        } else {
-                            mobilePlacementMove(def.dx, def.dy);
-                        }
-                    }, { passive: false });
-                    btn.addEventListener('touchend', (e) => {
-                        e.preventDefault();
-                        btn.style.transform = 'scale(1)';
-                    }, { passive: false });
-                } else {
-                    // Empty corner cell
-                    Object.assign(btn.style, { background: 'transparent', border: 'none', cursor: 'default' });
-                    btn.disabled = true;
-                }
-                dpad.appendChild(btn);
-            }
-        }
-
-        // Ship name label
-        const nameLabel = document.createElement('div');
-        nameLabel.id = 'mpo-name';
-        Object.assign(nameLabel.style, {
-            fontSize: '10px', letterSpacing: '2px', color: '#c9a84c',
-            textTransform: 'uppercase', fontFamily: 'monospace',
-            padding: '4px 0 2px', textAlign: 'center', pointerEvents: 'none',
-        });
-
-        // Confirm button
-        const confirmBtn = document.createElement('button');
-        confirmBtn.id = 'mpo-confirm';
-        confirmBtn.textContent = '⚓ Place';
-        Object.assign(confirmBtn.style, {
-            marginTop: '6px', padding: '10px 24px', borderRadius: '10px',
-            fontSize: '13px', fontWeight: 'bold', letterSpacing: '1px',
-            background: 'linear-gradient(135deg,#22c55e,#16a34a)',
-            color: '#0f172a', border: 'none', cursor: 'pointer',
-            boxShadow: '0 0 16px rgba(34,197,94,0.4)',
-            pointerEvents: 'all', touchAction: 'manipulation',
-            transition: 'transform 0.1s',
-        });
-        confirmBtn.addEventListener('touchstart', (e) => {
-            e.preventDefault(); e.stopPropagation();
-            confirmBtn.style.transform = 'scale(0.93)';
-            mobilePlacementConfirm();
-        }, { passive: false });
-        confirmBtn.addEventListener('touchend', (e) => {
-            e.preventDefault();
-            confirmBtn.style.transform = 'scale(1)';
-        }, { passive: false });
-
-        // Cancel button
-        const cancelBtn = document.createElement('button');
-        cancelBtn.id = 'mpo-cancel';
-        cancelBtn.textContent = '✕ Cancel';
-        Object.assign(cancelBtn.style, {
-            marginTop: '4px', padding: '6px 18px', borderRadius: '8px',
-            fontSize: '11px', fontWeight: 'bold',
-            background: 'rgba(239,68,68,0.15)', color: '#ef4444',
-            border: '1px solid rgba(239,68,68,0.35)', cursor: 'pointer',
-            pointerEvents: 'all', touchAction: 'manipulation',
-        });
-        cancelBtn.addEventListener('touchstart', (e) => {
-            e.preventDefault(); e.stopPropagation();
-            dismissMobilePlacement();
-        }, { passive: false });
-
-        overlay.appendChild(nameLabel);
-        overlay.appendChild(dpad);
-        overlay.appendChild(confirmBtn);
-        overlay.appendChild(cancelBtn);
-        document.body.appendChild(overlay);
-    }
-
-    document.getElementById('mpo-name').textContent = ship.name + ' · ' + ship.size + ' cells';
-    mobilePlacementPosition();
-}
-
-function mobilePlacementPosition() {
-    const overlay = document.getElementById('mobile-place-overlay');
-    if (!overlay || !selectedShip) return;
-
-    const selfBoard = document.getElementById('self-board');
-    if (!selfBoard) return;
-    const boardRect = selfBoard.getBoundingClientRect();
-
-    // Center overlay above the board
-    const overlayW = 134; // ~3*40 + 2*3
-    const left = boardRect.left + (boardRect.width / 2) - (overlayW / 2);
-    const top  = Math.max(8, boardRect.top - 180);
-
-    overlay.style.left    = left + 'px';
-    overlay.style.top     = top  + 'px';
-    overlay.style.display = 'flex';
-
-    // Pulse confirm if placement is valid
-    const confirmBtn = document.getElementById('mpo-confirm');
-    const valid = isMobileCellValid(mobilePlacementCell.x, mobilePlacementCell.y, selectedShip);
-    if (confirmBtn) {
-        confirmBtn.style.opacity = valid ? '1' : '0.4';
-        confirmBtn.style.boxShadow = valid
-            ? '0 0 16px rgba(34,197,94,0.5)' : 'none';
-    }
-}
-
-function isMobileCellValid(x, y, ship) {
-    if (!ship) return false;
-    const ori = ship.orientation;
-    for (let i = 0; i < ship.size; i++) {
-        const nx = x + (ori === 'H' ? i : 0);
-        const ny = y + (ori === 'V' ? i : 0);
-        if (nx < 0 || nx >= 10 || ny < 0 || ny >= 10) return false;
-        if (fleetInventory.some(s => s.placed && s.id !== ship.id && isShipAtCoordinate(s, nx, ny))) return false;
-    }
-    return true;
-}
-
-function mobilePlacementMove(dx, dy) {
-    if (!selectedShip) return;
-    let nx = mobilePlacementCell.x + dx;
-    let ny = mobilePlacementCell.y + dy;
-    // Clamp so ship head stays in bounds (tail clamping happens in validation)
-    nx = Math.max(0, Math.min(9, nx));
-    ny = Math.max(0, Math.min(9, ny));
-    mobilePlacementCell = { x: nx, y: ny };
-    hoverCell = { ...mobilePlacementCell };
-    refreshSelfBoardGridDisplay();
-    mobilePlacementPosition();
-}
-
-function mobilePlacementRotate() {
-    if (!selectedShip) return;
-    selectedShip.orientation = selectedShip.orientation === 'H' ? 'V' : 'H';
-    hoverCell = { ...mobilePlacementCell };
-    refreshSelfBoardGridDisplay();
-    mobilePlacementPosition();
-    // Update name label to show orientation
-    const nameEl = document.getElementById('mpo-name');
-    if (nameEl && selectedShip) {
-        nameEl.textContent = selectedShip.name + ' · ' + selectedShip.size + ' cells · ' + selectedShip.orientation;
-    }
-}
-
-function mobilePlacementConfirm() {
-    if (!selectedShip) return;
-    const { x, y } = mobilePlacementCell;
-    if (!isMobileCellValid(x, y, selectedShip)) return;
-    tryPlaceShip(x, y);
-    dismissMobilePlacement();
-}
-
-function dismissMobilePlacement() {
-    mobilePlacementActive = false;
-    const overlay = document.getElementById('mobile-place-overlay');
-    if (overlay) overlay.style.display = 'none';
-    if (selectedShip) {
-        selectedShip = null;
-        document.getElementById('placement-action-bar').classList.add('invisible');
-        renderDrydockList(); refreshSelfBoardGridDisplay();
-    }
-}
 
 // ════════════════════════════════════════════════════════════════════════════
 //  HELPERS
