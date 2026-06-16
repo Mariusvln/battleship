@@ -7,12 +7,30 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=Cormorant+Garamond:wght@300;400;600&display=swap" rel="stylesheet">
     <style>
-        /* ── Base ─────────────────────────────────────────────────────────── */
+        /* ── THEME SYSTEM CSS VARS ────────────────────────────────────────── */
+        :root {
+            --theme-bg-primary:    #080e1a;
+            --theme-bg-secondary:  #0d1525;
+            --theme-bg-panel:      rgba(13,21,37,0.9);
+            --theme-bg-surface:    #0f172a;
+            --theme-bg-cell:       #020617;
+            --theme-accent-gold:   #c9a84c;
+            --theme-accent-blue:   #38bdf8;
+            --theme-accent-red:    #ef4444;
+            --theme-accent-green:  #22c55e;
+            --theme-text-primary:  #e2e8f0;
+            --theme-text-muted:    #94a3b8;
+            --theme-text-faint:    #475569;
+            --theme-border:        rgba(201,168,76,0.2);
+            --theme-font:          'Cormorant Garamond', serif;
+        }
+
         * { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
         body {
             overscroll-behavior: none;
-            background: radial-gradient(ellipse at 20% 50%, #0d1525 0%, #080e1a 60%, #060b14 100%);
-            font-family: 'Cormorant Garamond', serif;
+            background: radial-gradient(ellipse at 20% 50%, var(--theme-bg-secondary) 0%, var(--theme-bg-primary) 60%, #060b14 100%);
+            font-family: var(--theme-font);
+            color: var(--theme-text-primary);
         }
 
         .grid-cell {
@@ -21,38 +39,40 @@
             position: relative;
         }
 
-        /* ── Ship overlay layer ───────────────────────────────────────────── */
+        /* ── Ship overlay ─────────────────────────────────────────────────── */
         #self-board { position: relative; }
         #ship-overlay {
             position: absolute;
-            top: 8px; left: 8px; /* match p-2 padding of grid */
+            top: 8px; left: 8px;
             pointer-events: none;
             z-index: 10;
         }
 
         .ship-sprite {
             position: absolute;
-            /* background-image: url('battleship1.png'); */
             background-size: 100% 100%;
             background-repeat: no-repeat;
             image-rendering: pixelated;
             pointer-events: none;
-            transition: top 0.08s ease, left 0.08s ease;
             border-radius: 3px;
             will-change: transform;
         }
-
         .ship-sprite[data-ship-id="carrier"]    { background-image: url('battleship1.png'); }
         .ship-sprite[data-ship-id="battleship"] { background-image: url('battleship3.png'); }
         .ship-sprite[data-ship-id="destroyer"]  { background-image: url('battleship2.png'); }
         .ship-sprite[data-ship-id="submarine"]  { background-image: url('battleship4.png'); }
         .ship-sprite[data-ship-id="patrol"]     { background-image: url('battleship5.png'); }
 
-        .ship-sprite.vertical {
-            transform-origin: top left;
+        /* ── Placement frame pulse (border only) ──────────────────────────── */
+        @keyframes framePulse {
+            0%,100% { box-shadow: 0 0 0 0 rgba(56,189,248,0), inset 0 0 0 0 rgba(56,189,248,0); border-color: #1e293b; }
+            50%      { box-shadow: 0 0 18px 4px rgba(56,189,248,0.35), inset 0 0 8px rgba(56,189,248,0.08); border-color: rgba(56,189,248,0.6); }
+        }
+        .frame-pulse {
+            animation: framePulse 2s ease-in-out infinite;
         }
 
-        /* ── Hit / Miss animations ────────────────────────────────────────── */
+        /* ── Hit / Miss / Sink ────────────────────────────────────────────── */
         @keyframes explode {
             0%   { transform: scale(0.3); opacity: 1; }
             40%  { transform: scale(1.4); opacity: 0.9; }
@@ -61,12 +81,22 @@
         @keyframes splash {
             0%   { transform: scale(0) translateY(0); opacity: 1; }
             70%  { transform: scale(1.2) translateY(-4px); opacity: 0.8; }
-            100% { transform: scale(1)   translateY(0); opacity: 0; }
+            100% { transform: scale(1) translateY(0); opacity: 0; }
         }
         @keyframes sinkShip {
             0%   { opacity: 1; transform: translateY(0) rotate(0deg); filter: brightness(1); }
             30%  { opacity: 0.8; filter: brightness(0.5) sepia(1); }
-            100% { opacity: 0; transform: translateY(6px) rotate(3deg); filter: brightness(0) sepia(1); }
+            100% { opacity: 0; transform: translateY(8px) rotate(4deg); filter: brightness(0) sepia(1); }
+        }
+        @keyframes sinkCell {
+            0%   { background-color: inherit; }
+            30%  { background-color: rgba(239,68,68,0.5); }
+            100% { background-color: rgba(20,28,40,0.9); }
+        }
+        @keyframes revealShip {
+            0%   { opacity: 0; transform: scale(0.85); }
+            60%  { opacity: 1; transform: scale(1.05); }
+            100% { opacity: 1; transform: scale(1); }
         }
 
         .hit-fx {
@@ -83,11 +113,11 @@
             animation: splash 0.4s ease-out forwards;
             pointer-events: none;
         }
-        .ship-sprite.sinking {
-            animation: sinkShip 1.2s ease-in forwards;
-        }
+        .ship-sprite.sinking { animation: sinkShip 1.4s ease-in forwards; }
+        .cell-sinking        { animation: sinkCell 1.4s ease-in forwards; }
+        .cell-revealed       { animation: revealShip 0.5s ease-out forwards; }
 
-        /* ── Fleet status panel ───────────────────────────────────────────── */
+        /* ── Fleet status ─────────────────────────────────────────────────── */
         .fleet-status-row { display: flex; align-items: center; gap: 6px; }
         .fleet-pip {
             width: 10px; height: 10px; border-radius: 2px;
@@ -102,22 +132,23 @@
         .ship-dock-item.selected { border-color: #c9a84c; background-color: rgba(201,168,76,0.08); }
         .ship-dock-item.placed   { opacity: 0.55; border-color: #2a3245; }
 
-        /* ── Rematch overlay ──────────────────────────────────────────────── */
-        #rematch-overlay {
+        /* ── End game overlay ─────────────────────────────────────────────── */
+        #endgame-overlay {
             position: fixed; inset: 0;
-            background: rgba(2,6,23,0.85);
-            backdrop-filter: blur(6px);
+            background: rgba(2,6,23,0.9);
+            backdrop-filter: blur(8px);
             flex-direction: column;
             align-items: center; justify-content: center;
             z-index: 100;
+            overflow-y: auto;
+            padding: 20px;
         }
 
-        /* ── Touch drag ghost ─────────────────────────────────────────────── */
+        /* ── Touch ghost ──────────────────────────────────────────────────── */
         #touch-ghost {
             position: fixed;
             pointer-events: none;
             z-index: 200;
-            background-image: url('battleship1.png');
             background-size: 100% 100%;
             image-rendering: pixelated;
             border-radius: 3px;
@@ -125,17 +156,42 @@
             opacity: 0.85;
         }
 
-        /* ── Misc ─────────────────────────────────────────────────────────── */
+        /* ── Pulse gold (lock button) ─────────────────────────────────────── */
         .pulse-gold { animation: pulseGold 1.5s ease-in-out infinite; }
         @keyframes pulseGold {
             0%,100% { box-shadow: 0 0 8px rgba(201,168,76,0.3); }
             50%      { box-shadow: 0 0 20px rgba(201,168,76,0.7); }
         }
+
+        /* ── Mini result grid ─────────────────────────────────────────────── */
+        .result-grid {
+            display: grid;
+            grid-template-columns: repeat(10, 1fr);
+            gap: 2px;
+            padding: 6px;
+            border-radius: 8px;
+            background: rgba(6,10,18,0.8);
+            border: 1px solid rgba(201,168,76,0.15);
+        }
+        .result-cell {
+            aspect-ratio: 1;
+            border-radius: 1px;
+            background: rgba(15,23,42,0.8);
+        }
+        .result-cell.rship   { background: rgba(100,116,139,0.7); }
+        .result-cell.rhit    { background: rgba(220,38,38,0.85); }
+        .result-cell.rmiss   { background: rgba(51,65,85,0.5); position: relative; }
+        .result-cell.rmiss::after {
+            content: '';
+            position: absolute; inset: 30%;
+            border-radius: 50%;
+            background: rgba(148,163,184,0.6);
+        }
+        .result-cell.rsunk   { background: rgba(15,23,42,0.9); border: 1px solid rgba(239,68,68,0.3); }
     </style>
 </head>
 <body class="text-slate-200 min-h-screen flex flex-col items-center p-4 select-none">
 
-<!-- Touch drag ghost image -->
 <div id="touch-ghost"></div>
 
 <!-- ── LOBBY ──────────────────────────────────────────────────────────────── -->
@@ -174,13 +230,11 @@
         <div class="flex flex-col items-center">
             <h3 class="text-sm font-bold tracking-widest text-slate-400 uppercase mb-3">Your Fleet</h3>
 
-            <!-- Grid wrapper — overlay lives here -->
             <div class="relative w-full max-w-sm">
                 <div id="self-board" class="grid grid-cols-10 gap-1 bg-slate-900 p-2 rounded-xl border border-slate-800 shadow-inner w-full"></div>
                 <div id="ship-overlay"></div>
             </div>
 
-            <!-- Placement toolbar -->
             <div id="placement-action-bar" class="invisible mt-3 flex flex-wrap items-center gap-3 bg-slate-900 border border-slate-800 px-4 py-2 rounded-xl shadow-lg w-full max-w-sm justify-between">
                 <span class="text-xs font-mono text-slate-400">Holding: <span id="staging-ship-name" class="text-cyan-400 font-bold">-</span></span>
                 <div class="flex gap-2">
@@ -189,7 +243,6 @@
                 </div>
             </div>
 
-            <!-- Drydock -->
             <div id="drydock-container" class="mt-4 w-full max-w-sm bg-slate-900 border border-slate-800 p-4 rounded-xl">
                 <div class="flex items-center justify-between mb-3 border-b border-slate-800 pb-1">
                     <h4 class="text-xs font-mono text-slate-400 uppercase tracking-widest">Drydock Fleet</h4>
@@ -210,7 +263,6 @@
             <div id="opponent-board" class="grid grid-cols-10 gap-1 bg-slate-900 p-2 rounded-xl border border-slate-800 w-full max-w-sm shadow-inner opacity-40 pointer-events-none"></div>
             <p id="turn-alert-banner" class="mt-3 text-xs font-mono font-bold tracking-widest text-amber-500 text-center uppercase min-h-[1.5rem]"></p>
 
-            <!-- Fleet status panels (shown during battle) -->
             <div id="fleet-status-panel" class="hidden mt-4 w-full max-w-sm grid grid-cols-2 gap-3">
                 <div class="bg-slate-900 border border-slate-800 p-3 rounded-xl">
                     <p class="text-[10px] font-mono text-slate-500 uppercase mb-2">Your Ships</p>
@@ -225,17 +277,41 @@
     </div>
 </div>
 
-<!-- ── REMATCH OVERLAY ────────────────────────────────────────────────────── -->
-<div id="rematch-overlay" style="display:none;">
-    <div class="text-center space-y-6 p-8 rounded-3xl shadow-2xl max-w-sm w-full mx-4" style="background:rgba(13,21,37,0.97);border:1px solid rgba(201,168,76,0.25);">
-        <div id="rematch-result-icon" class="text-7xl">🏆</div>
-        <h2 id="rematch-title" class="text-3xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-yellow-200 via-amber-400 to-yellow-600" style="font-family:'Playfair Display',serif;">VICTORY</h2>
-        <p id="rematch-subtitle" class="text-slate-400 text-sm tracking-widest">Fleet annihilated.</p>
-        <div class="flex flex-col gap-3 pt-2">
-            <button id="btn-rematch" class="w-full font-bold py-3 rounded-xl tracking-widest text-sm uppercase transition-all" style="background:linear-gradient(135deg,#a07830,#c9a84c,#a07830);color:#080e1a;">
+<!-- ── END GAME OVERLAY ───────────────────────────────────────────────────── -->
+<div id="endgame-overlay" style="display:none;">
+    <div class="w-full max-w-2xl mx-auto space-y-6">
+
+        <!-- Result header -->
+        <div class="text-center space-y-2">
+            <div id="endgame-icon" class="text-7xl">🏆</div>
+            <h2 id="endgame-title" class="text-4xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-yellow-200 via-amber-400 to-yellow-600" style="font-family:'Playfair Display',serif;">VICTORY</h2>
+            <p id="endgame-subtitle" class="text-slate-400 text-sm tracking-widest"></p>
+        </div>
+
+        <!-- Board reveal section -->
+        <div id="endgame-boards" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+            <!-- My board summary -->
+            <div class="rounded-xl p-4 space-y-2" style="background:rgba(13,21,37,0.9);border:1px solid rgba(201,168,76,0.15);">
+                <p class="text-xs font-mono text-slate-400 uppercase tracking-widest text-center">Your Fleet</p>
+                <div id="result-my-grid" class="result-grid"></div>
+                <p id="result-my-stats" class="text-[10px] text-slate-500 text-center font-mono"></p>
+            </div>
+
+            <!-- Enemy board reveal -->
+            <div class="rounded-xl p-4 space-y-2" style="background:rgba(13,21,37,0.9);border:1px solid rgba(201,168,76,0.15);">
+                <p class="text-xs font-mono text-slate-400 uppercase tracking-widest text-center">Enemy Fleet — Revealed</p>
+                <div id="result-enemy-grid" class="result-grid"></div>
+                <p id="result-enemy-stats" class="text-[10px] text-slate-500 text-center font-mono"></p>
+            </div>
+        </div>
+
+        <!-- Action buttons -->
+        <div class="flex flex-col sm:flex-row gap-3">
+            <button id="btn-rematch" class="flex-1 font-bold py-3 rounded-xl tracking-widest text-sm uppercase transition-all" style="background:linear-gradient(135deg,#1d4ed8,#3b82f6,#1d4ed8);color:#ffffff;">
                 ⚔️ Play Again
             </button>
-            <button id="btn-main-menu" class="w-full font-bold py-2.5 rounded-xl text-sm uppercase transition-all text-slate-300 hover:text-white" style="background:rgba(255,255,255,0.05);border:1px solid rgba(201,168,76,0.2);">
+            <button id="btn-main-menu" class="flex-1 font-bold py-2.5 rounded-xl text-sm uppercase transition-all text-slate-300 hover:text-white" style="background:rgba(255,255,255,0.05);border:1px solid rgba(201,168,76,0.2);">
                 ← Main Menu
             </button>
         </div>
@@ -251,14 +327,14 @@ let myUserId     = null;
 let isMyTurn     = false;
 let isGameActive = false;
 let shotCount    = 0;
+let myHitCount   = 0;
+let myMissCount  = 0;
 
-// Per-ship hit tracking  { shipId -> Set of "x,y" strings that have been hit }
-let myShipHits    = {};
-let enemyShipSunk = {}; // shipId -> bool (we infer from server GAME_OVER-adjacent logic)
+// Snapshot of where my shots landed: { hit: [[x,y]...], miss: [[x,y]...] }
+let myShotHistory = { hit: [], miss: [] };
+// Enemy board as revealed to us (filled in GAME_OVER)
+let revealedEnemyCells = [];
 
-// We track how many cells of each enemy ship size have been hit so we can mark sunk
-// Server sends hit/miss but not "which ship". We infer sinking when consecutive hits
-// cover a full ship. For simplicity we track a running enemy hit board and do size matching.
 let enemyHitBoard = Array(10).fill(null).map(() => Array(10).fill(false));
 
 const FLEET_TEMPLATE = () => [
@@ -270,25 +346,18 @@ const FLEET_TEMPLATE = () => [
 ];
 let fleetInventory = FLEET_TEMPLATE();
 
-// Enemy fleet mirror (sizes only — for status panel)
 const ENEMY_SIZES = [5, 4, 3, 3, 2];
-let enemyFleetStatus = ENEMY_SIZES.map((s, i) => ({ id: `e${i}`, size: s, sunk: false, hitsNeeded: s, hitsLanded: 0 }));
+let enemyFleetStatus = ENEMY_SIZES.map((s, i) => ({ id: `e${i}`, size: s, sunk: false, hitsLanded: 0 }));
 
-// Placement drag state
 let selectedShip = null;
 let hoverCell    = null;
 let isDragging   = false;
-
-// Touch state
-let touchStartCell = null;
-
-// Grid geometry cache (filled after build)
-let cellSize = 0;      // px per cell (including gap)
-let gridOriginX = 0;   // self-board left edge
-let gridOriginY = 0;   // self-board top edge
+let cellSize     = 0;
+let gridOriginX  = 0;
+let gridOriginY  = 0;
 
 // ════════════════════════════════════════════════════════════════════════════
-//  AUDIO (Web Audio API — no libs)
+//  AUDIO
 // ════════════════════════════════════════════════════════════════════════════
 let audioCtx = null;
 function getAudioCtx() {
@@ -299,10 +368,7 @@ function getAudioCtx() {
 function playHit() {
     try {
         const ctx = getAudioCtx(), t = ctx.currentTime;
-
-        // Layer 1 — punchy low impact thud
-        const thud = ctx.createOscillator();
-        const thudGain = ctx.createGain();
+        const thud = ctx.createOscillator(), thudGain = ctx.createGain();
         thud.type = 'sine';
         thud.frequency.setValueAtTime(180, t);
         thud.frequency.exponentialRampToValueAtTime(55, t + 0.18);
@@ -311,23 +377,17 @@ function playHit() {
         thud.connect(thudGain); thudGain.connect(ctx.destination);
         thud.start(t); thud.stop(t + 0.22);
 
-        // Layer 2 — mid crunch
-        const crunch = ctx.createOscillator();
-        const crunchGain = ctx.createGain();
+        const crunch = ctx.createOscillator(), crunchGain = ctx.createGain();
         crunch.type = 'square';
         crunch.frequency.setValueAtTime(90, t);
         crunch.frequency.exponentialRampToValueAtTime(30, t + 0.15);
         crunchGain.gain.setValueAtTime(0.35, t);
         crunchGain.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
-        const crunchFilter = ctx.createBiquadFilter();
-        crunchFilter.type = 'lowpass';
-        crunchFilter.frequency.value = 400;
-        crunch.connect(crunchFilter); crunchFilter.connect(crunchGain); crunchGain.connect(ctx.destination);
+        const cf = ctx.createBiquadFilter(); cf.type = 'lowpass'; cf.frequency.value = 400;
+        crunch.connect(cf); cf.connect(crunchGain); crunchGain.connect(ctx.destination);
         crunch.start(t); crunch.stop(t + 0.2);
 
-        // Layer 3 — sharp attack transient (the "crack")
-        const crack = ctx.createOscillator();
-        const crackGain = ctx.createGain();
+        const crack = ctx.createOscillator(), crackGain = ctx.createGain();
         crack.type = 'sawtooth';
         crack.frequency.setValueAtTime(800, t);
         crack.frequency.exponentialRampToValueAtTime(100, t + 0.05);
@@ -336,33 +396,23 @@ function playHit() {
         crack.connect(crackGain); crackGain.connect(ctx.destination);
         crack.start(t); crack.stop(t + 0.06);
 
-        // Layer 4 — noise burst (debris/shrapnel feel)
         const bufLen = Math.floor(ctx.sampleRate * 0.25);
         const buf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
         const data = buf.getChannelData(0);
-        for (let i = 0; i < bufLen; i++) {
-            data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufLen, 2.5);
-        }
-        const noise = ctx.createBufferSource();
-        const noiseGain = ctx.createGain();
-        const noiseFilter = ctx.createBiquadFilter();
-        noiseFilter.type = 'bandpass';
-        noiseFilter.frequency.value = 1200;
-        noiseFilter.Q.value = 0.8;
-        noise.buffer = buf;
-        noiseGain.gain.setValueAtTime(0.4, t);
+        for (let i = 0; i < bufLen; i++) data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufLen, 2.5);
+        const noise = ctx.createBufferSource(), noiseGain = ctx.createGain();
+        const nf = ctx.createBiquadFilter(); nf.type = 'bandpass'; nf.frequency.value = 1200; nf.Q.value = 0.8;
+        noise.buffer = buf; noiseGain.gain.setValueAtTime(0.4, t);
         noiseGain.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
-        noise.connect(noiseFilter); noiseFilter.connect(noiseGain); noiseGain.connect(ctx.destination);
+        noise.connect(nf); nf.connect(noiseGain); noiseGain.connect(ctx.destination);
         noise.start(t);
     } catch(e) {}
 }
 
 function playMiss() {
     try {
-        const ctx = getAudioCtx();
-        const t = ctx.currentTime;
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
+        const ctx = getAudioCtx(), t = ctx.currentTime;
+        const osc = ctx.createOscillator(), gain = ctx.createGain();
         osc.type = 'sine';
         osc.frequency.setValueAtTime(600, t);
         osc.frequency.exponentialRampToValueAtTime(200, t + 0.25);
@@ -375,27 +425,47 @@ function playMiss() {
 
 function playSink() {
     try {
-        const ctx = getAudioCtx();
-        const t = ctx.currentTime;
-        [80, 60, 40].forEach((freq, i) => {
-            const osc  = ctx.createOscillator();
-            const gain = ctx.createGain();
+        const ctx = getAudioCtx(), t = ctx.currentTime;
+        [100, 70, 45].forEach((freq, i) => {
+            const osc = ctx.createOscillator(), gain = ctx.createGain();
             osc.type = 'sawtooth';
-            osc.frequency.value = freq;
-            gain.gain.setValueAtTime(0.5, t + i * 0.12);
-            gain.gain.exponentialRampToValueAtTime(0.001, t + i * 0.12 + 0.5);
+            osc.frequency.setValueAtTime(freq, t + i * 0.1);
+            osc.frequency.exponentialRampToValueAtTime(freq * 0.4, t + i * 0.1 + 0.5);
+            gain.gain.setValueAtTime(0.6, t + i * 0.1);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + i * 0.1 + 0.6);
             osc.connect(gain); gain.connect(ctx.destination);
-            osc.start(t + i * 0.12); osc.stop(t + i * 0.12 + 0.55);
+            osc.start(t + i * 0.1); osc.stop(t + i * 0.1 + 0.65);
+        });
+        const bufLen = Math.floor(ctx.sampleRate * 0.8);
+        const buf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < bufLen; i++) data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufLen, 1.5);
+        const src = ctx.createBufferSource(), g = ctx.createGain();
+        const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 300;
+        src.buffer = buf; g.gain.value = 0.3;
+        src.connect(f); f.connect(g); g.connect(ctx.destination); src.start(t);
+    } catch(e) {}
+}
+
+function playShipSunkChime() {
+    try {
+        const ctx = getAudioCtx(), t = ctx.currentTime;
+        [330, 415, 494, 659].forEach((freq, i) => {
+            const osc = ctx.createOscillator(), gain = ctx.createGain();
+            osc.type = 'square'; osc.frequency.value = freq;
+            gain.gain.setValueAtTime(0, t + i * 0.07);
+            gain.gain.linearRampToValueAtTime(0.18, t + i * 0.07 + 0.02);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + i * 0.07 + 0.18);
+            osc.connect(gain); gain.connect(ctx.destination);
+            osc.start(t + i * 0.07); osc.stop(t + i * 0.07 + 0.2);
         });
     } catch(e) {}
 }
 
 function playPlace() {
     try {
-        const ctx = getAudioCtx();
-        const t = ctx.currentTime;
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
+        const ctx = getAudioCtx(), t = ctx.currentTime;
+        const osc = ctx.createOscillator(), gain = ctx.createGain();
         osc.type = 'triangle';
         osc.frequency.setValueAtTime(440, t);
         osc.frequency.exponentialRampToValueAtTime(660, t + 0.1);
@@ -403,24 +473,6 @@ function playPlace() {
         gain.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
         osc.connect(gain); gain.connect(ctx.destination);
         osc.start(t); osc.stop(t + 0.15);
-    } catch(e) {}
-}
-
-function playShipSunkChime() {
-    try {
-        const ctx = getAudioCtx(), t = ctx.currentTime;
-        // Ascending victory arpeggio — arcade feel
-        [330, 415, 494, 659].forEach((freq, i) => {
-            const osc  = ctx.createOscillator();
-            const gain = ctx.createGain();
-            osc.type = 'square';
-            osc.frequency.value = freq;
-            gain.gain.setValueAtTime(0, t + i * 0.07);
-            gain.gain.linearRampToValueAtTime(0.18, t + i * 0.07 + 0.02);
-            gain.gain.exponentialRampToValueAtTime(0.001, t + i * 0.07 + 0.18);
-            osc.connect(gain); gain.connect(ctx.destination);
-            osc.start(t + i * 0.07); osc.stop(t + i * 0.07 + 0.2);
-        });
     } catch(e) {}
 }
 
@@ -463,11 +515,9 @@ function buildDomMatrices() {
 
     selfBoard.addEventListener('mouseleave', () => { hoverCell = null; refreshSelfBoardGridDisplay(); });
     document.addEventListener('mouseup', () => { isDragging = false; });
-
-    // Touch events on self-board
-    selfBoard.addEventListener('touchstart',  onTouchStart,  { passive: false });
-    selfBoard.addEventListener('touchmove',   onTouchMove,   { passive: false });
-    selfBoard.addEventListener('touchend',    onTouchEnd,    { passive: false });
+    selfBoard.addEventListener('touchstart', onTouchStart, { passive: false });
+    selfBoard.addEventListener('touchmove',  onTouchMove,  { passive: false });
+    selfBoard.addEventListener('touchend',   onTouchEnd,   { passive: false });
 
     renderDrydockList();
     rebuildShipOverlay();
@@ -476,53 +526,46 @@ function buildDomMatrices() {
 
 function cacheGridGeometry() {
     const selfBoard = document.getElementById('self-board');
+    if (!selfBoard) return;
     const rect = selfBoard.getBoundingClientRect();
     const firstCell = selfBoard.querySelector('.grid-cell');
     if (!firstCell) return;
     const cellRect = firstCell.getBoundingClientRect();
-    cellSize    = cellRect.width + 1; // +1 for gap
-    gridOriginX = rect.left + 8;     // 8 = p-2
+    cellSize    = cellRect.width + 1;
+    gridOriginX = rect.left + 8;
     gridOriginY = rect.top  + 8;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  FRAME PULSE (border glow during placement)
+// ════════════════════════════════════════════════════════════════════════════
+function enableFramePulse() {
+    document.getElementById('self-board').classList.add('frame-pulse');
+}
+function disableFramePulse() {
+    document.getElementById('self-board').classList.remove('frame-pulse');
 }
 
 // ════════════════════════════════════════════════════════════════════════════
 //  SHIP SPRITE OVERLAY
 // ════════════════════════════════════════════════════════════════════════════
-// battleship1.png is 131×37 for a size-4 ship (4 cells wide)
-// We scale it proportionally for each ship size.
-// 131/4 ≈ 32.75 px per unit in the source image.
-// At runtime, one cell = cellSize px.
-const IMG_UNIT_W = 131 / 4; // source px per ship unit
-
 function rebuildShipOverlay() {
     const overlay = document.getElementById('ship-overlay');
     overlay.innerHTML = '';
-    overlay.style.width  = '0';
-    overlay.style.height = '0';
-
-    // Re-cache geometry each time (grid may have resized)
     cacheGridGeometry();
-
     fleetInventory.forEach(ship => {
         if (!ship.placed) return;
-        const sprite = createShipSprite(ship);
+        const sprite = document.createElement('div');
+        sprite.className = 'ship-sprite';
+        sprite.dataset.shipId = ship.id;
+        positionSprite(sprite, ship.x, ship.y, ship.orientation, ship.size);
         overlay.appendChild(sprite);
     });
-}
-
-function createShipSprite(ship, isPreview = false) {
-    const sprite = document.createElement('div');
-    sprite.className = 'ship-sprite' + (isPreview ? ' opacity-70' : '');
-    sprite.dataset.shipId = ship.id;
-    positionSprite(sprite, ship.x, ship.y, ship.orientation, ship.size);
-    if (isPreview) sprite.style.transition = 'none';
-    return sprite;
 }
 
 function positionSprite(sprite, gx, gy, ori, size) {
     const selfBoard = document.getElementById('self-board');
     const boardRect = selfBoard.getBoundingClientRect();
-
     const firstCell = selfBoard.querySelector(`[data-x="${gx}"][data-y="${gy}"]`);
     const lastX = ori === 'H' ? gx + size - 1 : gx;
     const lastY = ori === 'V' ? gy + size - 1 : gy;
@@ -531,21 +574,17 @@ function positionSprite(sprite, gx, gy, ori, size) {
 
     const first = firstCell.getBoundingClientRect();
     const last  = lastCell.getBoundingClientRect();
-
     const w = last.right  - first.left;
     const h = last.bottom - first.top;
 
-    // Per-ship offsets: { H: [offsetX, offsetY], V: [offsetX, offsetY] }
     const offsets = {
-        carrier:    { H: [0, -4], V: [-4, 0] },
-        battleship: { H: [5, -5], V: [-4, 0] },
+        carrier:    { H: [0, -4],  V: [-4, 0] },
+        battleship: { H: [5, -5],  V: [-4, 0] },
         destroyer:  { H: [-2, -5], V: [-9, -4] },
-        submarine:  { H: [1, -8], V: [-4, 0] },
+        submarine:  { H: [1, -8],  V: [-4, 0] },
         patrol:     { H: [-5, -7], V: [-6, -2] },
     };
-
-    const shipId = sprite.dataset.shipId;
-    const [ox, oy] = offsets[shipId]?.[ori] ?? [0, 0];
+    const [ox, oy] = offsets[sprite.dataset.shipId]?.[ori] ?? [0, 0];
 
     sprite.style.left = (first.left - boardRect.left + ox) + 'px';
     sprite.style.top  = (first.top  - boardRect.top  + oy) + 'px';
@@ -576,25 +615,29 @@ function updateOrAddSprite(ship) {
 }
 
 function removeSprite(shipId) {
-    const overlay = document.getElementById('ship-overlay');
-    const el = overlay.querySelector(`[data-ship-id="${shipId}"]`);
+    const el = document.getElementById('ship-overlay').querySelector(`[data-ship-id="${shipId}"]`);
     if (el) el.remove();
 }
 
-function sinkSprite(shipId) {
-    const overlay = document.getElementById('ship-overlay');
-    const el = overlay.querySelector(`[data-ship-id="${shipId}"]`);
+function sinkSpriteAndCells(ship) {
+    const el = document.getElementById('ship-overlay').querySelector(`[data-ship-id="${ship.id}"]`);
     if (el) el.classList.add('sinking');
+    const selfBoard = document.getElementById('self-board');
+    for (let i = 0; i < ship.size; i++) {
+        const nx = ship.x + (ship.orientation === 'H' ? i : 0);
+        const ny = ship.y + (ship.orientation === 'V' ? i : 0);
+        const cell = selfBoard.querySelector(`[data-x="${nx}"][data-y="${ny}"]`);
+        if (cell) cell.classList.add('cell-sinking');
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  MOUSE CELL EVENTS
+//  MOUSE EVENTS
 // ════════════════════════════════════════════════════════════════════════════
 function onCellEnter(x, y) {
     hoverCell = { x, y };
     if (selectedShip) refreshSelfBoardGridDisplay();
 }
-
 function onCellMouseDown(x, y) {
     if (isGameActive) return;
     if (!selectedShip) {
@@ -603,7 +646,6 @@ function onCellMouseDown(x, y) {
     }
     isDragging = true;
 }
-
 function onCellMouseUp(x, y) {
     if (!isDragging || !selectedShip) return;
     isDragging = false;
@@ -620,76 +662,53 @@ function cellFromTouch(touch) {
     if (x < 0 || x >= 10 || y < 0 || y >= 10) return null;
     return { x, y };
 }
-
 function onTouchStart(e) {
     if (isGameActive) return;
     e.preventDefault();
     const touch = e.touches[0];
     const cell = cellFromTouch(touch);
     if (!cell) return;
-    touchStartCell = cell;
-
     if (!selectedShip) {
         const shipOnCell = fleetInventory.find(s => s.placed && isShipAtCoordinate(s, cell.x, cell.y));
-        if (shipOnCell) {
-            pickUpShip(shipOnCell);
-            showTouchGhost(touch, shipOnCell);
-            return;
-        }
+        if (shipOnCell) { pickUpShip(shipOnCell); showTouchGhost(touch, shipOnCell); return; }
     }
-    if (selectedShip) {
-        hoverCell = cell;
-        refreshSelfBoardGridDisplay();
-        showTouchGhost(touch, selectedShip);
-    }
+    if (selectedShip) { hoverCell = cell; refreshSelfBoardGridDisplay(); showTouchGhost(touch, selectedShip); }
 }
-
 function onTouchMove(e) {
     if (!selectedShip) return;
     e.preventDefault();
     const touch = e.touches[0];
     const cell = cellFromTouch(touch);
-
     moveTouchGhost(touch, selectedShip);
-
-    if (cell && (cell.x !== hoverCell?.x || cell.y !== hoverCell?.y)) {
-        hoverCell = cell;
-        refreshSelfBoardGridDisplay();
-    }
+    if (cell && (cell.x !== hoverCell?.x || cell.y !== hoverCell?.y)) { hoverCell = cell; refreshSelfBoardGridDisplay(); }
 }
-
 function onTouchEnd(e) {
     hideTouchGhost();
     if (!selectedShip || !hoverCell) return;
     tryPlaceShip(hoverCell.x, hoverCell.y);
 }
-
 function showTouchGhost(touch, ship) {
     const ghost = document.getElementById('touch-ghost');
     cacheGridGeometry();
-    const w = cellSize * ship.size;
-    const h = cellSize;
-    ghost.style.width  = w + 'px';
-    ghost.style.height = h + 'px';
+    const imgMap = { carrier:'battleship1.png', battleship:'battleship3.png', destroyer:'battleship2.png', submarine:'battleship4.png', patrol:'battleship5.png' };
+    ghost.style.backgroundImage = `url('${imgMap[ship.id] || 'battleship1.png'}')`;
+    ghost.style.width = (cellSize * ship.size) + 'px';
+    ghost.style.height = cellSize + 'px';
     ghost.style.display = 'block';
     moveTouchGhost(touch, ship);
 }
 function moveTouchGhost(touch, ship) {
     const ghost = document.getElementById('touch-ghost');
     cacheGridGeometry();
-    const w = cellSize * ship.size;
-    const h = cellSize;
-    const rot = ship.orientation === 'V' ? 'rotate(90deg)' : '';
-    ghost.style.transform = rot;
+    const w = cellSize * ship.size, h = cellSize;
+    ghost.style.transform = ship.orientation === 'V' ? 'rotate(90deg)' : '';
     ghost.style.left = (touch.clientX - w / 2) + 'px';
     ghost.style.top  = (touch.clientY - h / 2) + 'px';
 }
-function hideTouchGhost() {
-    document.getElementById('touch-ghost').style.display = 'none';
-}
+function hideTouchGhost() { document.getElementById('touch-ghost').style.display = 'none'; }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  SHIP PICKUP / PLACEMENT
+//  PLACEMENT
 // ════════════════════════════════════════════════════════════════════════════
 function pickUpShip(ship) {
     ship.placed = false;
@@ -698,31 +717,34 @@ function pickUpShip(ship) {
     removeSprite(ship.id);
     document.getElementById('staging-ship-name').innerText = ship.name;
     document.getElementById('placement-action-bar').classList.remove('invisible');
-    renderDrydockList();
-    refreshSelfBoardGridDisplay();
+    renderDrydockList(); refreshSelfBoardGridDisplay();
+    // On mobile, snap ship to a default cell and show floating controls
+    if (isMobileUser()) {
+        const startX = ship.x ?? 0, startY = ship.y ?? 0;
+        hoverCell = { x: startX, y: startY };
+        mobilePlacementMode(ship);
+    }
 }
 
 function tryPlaceShip(x, y) {
     if (!selectedShip) return;
     const ori = selectedShip.orientation;
-
     for (let i = 0; i < selectedShip.size; i++) {
         const nx = x + (ori === 'H' ? i : 0);
         const ny = y + (ori === 'V' ? i : 0);
         if (nx < 0 || nx >= 10 || ny < 0 || ny >= 10) { flashInvalid(x, y); return; }
         if (fleetInventory.some(s => s.placed && s.id !== selectedShip.id && isShipAtCoordinate(s, nx, ny))) { flashInvalid(x, y); return; }
     }
-
-    selectedShip.x = x;
-    selectedShip.y = y;
-    selectedShip.placed = true;
+    selectedShip.x = x; selectedShip.y = y; selectedShip.placed = true;
     playPlace();
     updateOrAddSprite(selectedShip);
-    selectedShip = null;
-    hoverCell = null;
+    selectedShip = null; hoverCell = null;
     document.getElementById('placement-action-bar').classList.add('invisible');
-    renderDrydockList();
-    refreshSelfBoardGridDisplay();
+    // Dismiss mobile overlay if active
+    const mpo = document.getElementById('mobile-place-overlay');
+    if (mpo) mpo.style.display = 'none';
+    mobilePlacementActive = false;
+    renderDrydockList(); refreshSelfBoardGridDisplay();
 }
 
 function flashInvalid(x, y) {
@@ -733,10 +755,7 @@ function flashInvalid(x, y) {
         const ny = y + (ori === 'V' ? i : 0);
         if (nx < 0 || nx >= 10 || ny < 0 || ny >= 10) continue;
         const c = selfGrid.querySelector(`[data-x="${nx}"][data-y="${ny}"]`);
-        if (c) {
-            c.classList.add('bg-red-800');
-            setTimeout(() => refreshSelfBoardGridDisplay(), 350);
-        }
+        if (c) { c.classList.add('bg-red-800'); setTimeout(() => refreshSelfBoardGridDisplay(), 350); }
     }
 }
 
@@ -744,64 +763,43 @@ function flashInvalid(x, y) {
 //  AUTO-PLACE
 // ════════════════════════════════════════════════════════════════════════════
 function autoPlaceAll() {
-    // Reset all first
     fleetInventory.forEach(s => { s.placed = false; s.x = null; s.y = null; });
     selectedShip = null;
-
-    const shipsToPlace = [...fleetInventory];
-    let attempts = 0;
-
-    for (const ship of shipsToPlace) {
-        let placed = false;
-        while (!placed && attempts < 1000) {
-            attempts++;
+    dismissMobilePlacement();
+    for (const ship of fleetInventory) {
+        let placed = false, tries = 0;
+        while (!placed && tries++ < 1000) {
             const ori = Math.random() < 0.5 ? 'H' : 'V';
-            const maxX = ori === 'H' ? 10 - ship.size : 9;
-            const maxY = ori === 'V' ? 10 - ship.size : 9;
-            const rx = Math.floor(Math.random() * (maxX + 1));
-            const ry = Math.floor(Math.random() * (maxY + 1));
-
-            let conflict = false;
+            const rx = Math.floor(Math.random() * (ori === 'H' ? 11 - ship.size : 10));
+            const ry = Math.floor(Math.random() * (ori === 'V' ? 11 - ship.size : 10));
+            let ok = true;
             for (let i = 0; i < ship.size; i++) {
                 const nx = rx + (ori === 'H' ? i : 0);
                 const ny = ry + (ori === 'V' ? i : 0);
-                if (fleetInventory.some(s => s.placed && s.id !== ship.id && isShipAtCoordinate(s, nx, ny))) {
-                    conflict = true; break;
-                }
+                if (fleetInventory.some(s => s.placed && s.id !== ship.id && isShipAtCoordinate(s, nx, ny))) { ok = false; break; }
             }
-            if (!conflict) {
-                ship.x = rx; ship.y = ry;
-                ship.orientation = ori;
-                ship.placed = true;
-                placed = true;
-            }
+            if (ok) { ship.x = rx; ship.y = ry; ship.orientation = ori; ship.placed = true; placed = true; }
         }
     }
-
     document.getElementById('placement-action-bar').classList.add('invisible');
-    renderDrydockList();
-    refreshSelfBoardGridDisplay();
-    rebuildShipOverlay();
+    renderDrydockList(); refreshSelfBoardGridDisplay(); rebuildShipOverlay();
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  DRYDOCK LIST
+//  DRYDOCK
 // ════════════════════════════════════════════════════════════════════════════
 function renderDrydockList() {
     const listContainer = document.getElementById('drydock-list');
     listContainer.innerHTML = '';
-
     fleetInventory.forEach(ship => {
         const isSel = selectedShip?.id === ship.id;
         const row = document.createElement('div');
         row.className = `ship-dock-item flex items-center justify-between border border-slate-800 bg-slate-950/40 p-2 rounded-lg text-xs font-mono cursor-pointer
             ${ship.placed ? 'placed' : ''} ${isSel ? 'selected ring-1 ring-cyan-400' : ''}`;
-
         const blocks = Array.from({ length: ship.size }, (_, i) => {
-            const hitClass = (ship.hits > i) ? 'bg-red-500' : (isSel ? 'bg-cyan-400' : ship.placed ? 'bg-slate-600' : 'bg-slate-500');
-            return `<span class="inline-block w-3.5 h-3.5 rounded-sm ${hitClass} border border-slate-400/20"></span>`;
+            const hc = (ship.hits > i) ? 'bg-red-500' : (isSel ? 'bg-cyan-400' : ship.placed ? 'bg-slate-600' : 'bg-slate-500');
+            return `<span class="inline-block w-3.5 h-3.5 rounded-sm ${hc} border border-slate-400/20"></span>`;
         }).join('');
-
         row.innerHTML = `
             <div class="flex flex-col gap-0.5">
                 <span class="font-bold text-slate-300">${ship.name} <span class="text-slate-500">(${ship.size})</span></span>
@@ -810,12 +808,12 @@ function renderDrydockList() {
             <span class="text-[10px] ${ship.placed ? 'text-emerald-400' : isSel ? 'text-cyan-300 animate-pulse' : 'text-slate-500'}">
                 ${ship.placed ? `✓ ${ship.orientation}` : isSel ? '⬡ HELD' : '○ DOCK'}
             </span>`;
-
         row.addEventListener('click', () => {
             if (isGameActive) return;
             if (isSel) {
                 selectedShip = null;
                 document.getElementById('placement-action-bar').classList.add('invisible');
+                dismissMobilePlacement();
                 renderDrydockList(); refreshSelfBoardGridDisplay(); return;
             }
             if (ship.placed) { ship.placed = false; removeSprite(ship.id); }
@@ -824,28 +822,26 @@ function renderDrydockList() {
             document.getElementById('staging-ship-name').innerText = ship.name;
             document.getElementById('placement-action-bar').classList.remove('invisible');
             renderDrydockList(); refreshSelfBoardGridDisplay();
+            if (isMobileUser()) {
+                mobilePlacementCell = { x: ship.x ?? 0, y: ship.y ?? 0 };
+                mobilePlacementMode(ship);
+            }
         });
         listContainer.appendChild(row);
     });
-
-    const allPlaced = fleetInventory.every(s => s.placed);
-    document.getElementById('placement-submit-zone').classList.toggle('hidden', !allPlaced);
+    document.getElementById('placement-submit-zone').classList.toggle('hidden', !fleetInventory.every(s => s.placed));
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  SELF BOARD DISPLAY (cell colours only — sprites are in overlay)
+//  BOARD DISPLAY
 // ════════════════════════════════════════════════════════════════════════════
 function refreshSelfBoardGridDisplay() {
     const selfGrid = document.getElementById('self-board');
     const hasShip  = !!selectedShip;
-
     selfGrid.querySelectorAll('.grid-cell').forEach(c => {
-        // Preserve hit/miss classes added during battle
         if (c.dataset.state) return;
         c.className = `grid-cell bg-slate-950 rounded-sm border border-slate-800/40 ${hasShip ? 'cursor-crosshair' : 'cursor-default'}`;
     });
-
-    // Hover preview
     if (selectedShip && hoverCell) {
         const { x, y } = hoverCell;
         const ori = selectedShip.orientation;
@@ -861,23 +857,20 @@ function refreshSelfBoardGridDisplay() {
             const ny = y + (ori === 'V' ? i : 0);
             if (nx < 0 || nx >= 10 || ny < 0 || ny >= 10) continue;
             const c = selfGrid.querySelector(`[data-x="${nx}"][data-y="${ny}"]`);
-            if (c && !c.dataset.state) {
-                c.className = `grid-cell rounded-sm ${allValid
-                    ? 'bg-cyan-900 border border-cyan-400 shadow-[0_0_5px_rgba(34,211,238,0.5)]'
-                    : 'bg-red-950 border border-red-500'}`;
-            }
+            if (c && !c.dataset.state) c.className = `grid-cell rounded-sm ${allValid
+                ? 'bg-cyan-900 border border-cyan-400 shadow-[0_0_5px_rgba(34,211,238,0.5)]'
+                : 'bg-red-950 border border-red-500'}`;
         }
     }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  FLEET STATUS PANEL
+//  FLEET STATUS
 // ════════════════════════════════════════════════════════════════════════════
 function buildFleetStatusPanels() {
     const myPanel    = document.getElementById('my-fleet-status');
     const enemyPanel = document.getElementById('enemy-fleet-status');
     myPanel.innerHTML = ''; enemyPanel.innerHTML = '';
-
     fleetInventory.forEach(ship => {
         const row = document.createElement('div');
         row.className = 'fleet-status-row';
@@ -886,7 +879,6 @@ function buildFleetStatusPanels() {
         row.innerHTML = `<span class="text-[10px] text-slate-500 w-16 truncate">${ship.name}</span>${pips}`;
         myPanel.appendChild(row);
     });
-
     enemyFleetStatus.forEach((ef, idx) => {
         const row = document.createElement('div');
         row.className = 'fleet-status-row';
@@ -895,7 +887,6 @@ function buildFleetStatusPanels() {
         row.innerHTML = `<span class="text-[10px] text-slate-500 w-16">${ef.size}-unit</span>${pips}`;
         enemyPanel.appendChild(row);
     });
-
     document.getElementById('fleet-status-panel').classList.remove('hidden');
 }
 
@@ -903,53 +894,43 @@ function updateMyShipHit(x, y) {
     const ship = fleetInventory.find(s => s.placed && isShipAtCoordinate(s, x, y));
     if (!ship) return;
     ship.hits++;
-    // Update pips
     for (let i = 0; i < ship.hits && i < ship.size; i++) {
         const pip = document.getElementById(`mypip-${ship.id}-${i}`);
         if (pip) pip.classList.add(ship.hits >= ship.size ? 'sunk' : 'hit');
     }
     if (ship.hits >= ship.size) {
-        // All pips → sunk
         for (let i = 0; i < ship.size; i++) {
             const pip = document.getElementById(`mypip-${ship.id}-${i}`);
             if (pip) { pip.classList.remove('hit'); pip.classList.add('sunk'); }
         }
-        sinkSprite(ship.id);
-        playSink();
+        sinkSpriteAndCells(ship);
+        playSink(); playShipSunkChime();
     }
 }
 
 function updateEnemyHit(x, y) {
     enemyHitBoard[y][x] = true;
-    // Try to match a complete ship by flood-fill connected hits
-    // Simple heuristic: find longest run H or V containing (x,y)
-    let bestMatch = null, bestLen = 0;
-    // Check H run
+    let bestLen = 0;
     let x0 = x; while (x0 > 0 && enemyHitBoard[y][x0-1]) x0--;
     let x1 = x; while (x1 < 9 && enemyHitBoard[y][x1+1]) x1++;
-    const runH = x1 - x0 + 1;
-    if (runH > bestLen) { bestLen = runH; bestMatch = { ori: 'H', x: x0, y, len: runH }; }
-    // Check V run
+    if (x1 - x0 + 1 > bestLen) bestLen = x1 - x0 + 1;
     let y0 = y; while (y0 > 0 && enemyHitBoard[y0-1][x]) y0--;
     let y1 = y; while (y1 < 9 && enemyHitBoard[y1+1][x]) y1++;
-    const runV = y1 - y0 + 1;
-    if (runV > bestLen) { bestLen = runV; bestMatch = { ori: 'V', x, y: y0, len: runV }; }
+    if (y1 - y0 + 1 > bestLen) bestLen = y1 - y0 + 1;
 
-    // Check if any unsunk enemy ship of that size matches
     const candidate = enemyFleetStatus.find(ef => !ef.sunk && ef.size === bestLen);
     if (candidate) {
+        const idx = enemyFleetStatus.indexOf(candidate);
         candidate.hitsLanded++;
-        // Update pips
-        const pip = document.getElementById(`epip-${enemyFleetStatus.indexOf(candidate)}-${candidate.hitsLanded - 1}`);
+        const pip = document.getElementById(`epip-${idx}-${candidate.hitsLanded - 1}`);
         if (pip) pip.classList.add(candidate.hitsLanded >= candidate.size ? 'sunk' : 'hit');
         if (candidate.hitsLanded >= candidate.size) {
             candidate.sunk = true;
             for (let i = 0; i < candidate.size; i++) {
-                const p = document.getElementById(`epip-${enemyFleetStatus.indexOf(candidate)}-${i}`);
+                const p = document.getElementById(`epip-${idx}-${i}`);
                 if (p) { p.classList.remove('hit'); p.classList.add('sunk'); }
             }
-            playSink();
-            playShipSunkChime();
+            playSink(); playShipSunkChime();
         }
     }
 }
@@ -960,23 +941,102 @@ function updateEnemyHit(x, y) {
 function applyFireResult(board, x, y, hit) {
     const cell = board.querySelector(`[data-x="${x}"][data-y="${y}"]`);
     if (!cell) return;
-
     cell.dataset.state = hit ? 'hit' : 'miss';
     cell.style.position = 'relative';
     cell.className = `grid-cell rounded-sm ${hit ? 'bg-red-900 border border-red-500' : 'bg-slate-900 border border-slate-700'}`;
-
     const fx = document.createElement('div');
-    if (hit) {
-        fx.className = 'hit-fx';
-        fx.textContent = '💥';
-        playHit();
-    } else {
-        fx.className = 'miss-fx';
-        fx.textContent = '💧';
-        playMiss();
-    }
+    fx.className = hit ? 'hit-fx' : 'miss-fx';
+    fx.textContent = hit ? '💥' : '💧';
     cell.appendChild(fx);
     setTimeout(() => fx.remove(), 600);
+    if (hit) playHit(); else playMiss();
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  END GAME SCREEN
+// ════════════════════════════════════════════════════════════════════════════
+function buildResultGrid(containerId, shipCells, hitCells, missCells) {
+    const container = document.getElementById(containerId);
+    container.innerHTML = '';
+
+    // Build lookup sets
+    const shipSet = new Set(shipCells.map(c => `${c.x},${c.y}`));
+    const hitSet  = new Set(hitCells.map(c  => `${c.x},${c.y}`));
+    const missSet = new Set(missCells.map(c => `${c.x},${c.y}`));
+
+    for (let y = 0; y < 10; y++) {
+        for (let x = 0; x < 10; x++) {
+            const key = `${x},${y}`;
+            const cell = document.createElement('div');
+            cell.className = 'result-cell';
+            const isShip = shipSet.has(key);
+            const isHit  = hitSet.has(key);
+            const isMiss = missSet.has(key);
+
+            if (isShip && isHit) cell.classList.add('rhit');
+            else if (isShip)     cell.classList.add('rship');
+            else if (isHit)      cell.classList.add('rhit');
+            else if (isMiss)     cell.classList.add('rmiss');
+
+            container.appendChild(cell);
+        }
+    }
+}
+
+function showEndGameScreen(won, opponentShipCells) {
+    // My board: ships = fleetInventory positions, hits on me = cells with dataset.state=hit on self-board
+    const selfBoard = document.getElementById('self-board');
+    const myShipCells = [];
+    fleetInventory.forEach(ship => {
+        if (!ship.placed) return;
+        for (let i = 0; i < ship.size; i++) {
+            myShipCells.push({
+                x: ship.x + (ship.orientation === 'H' ? i : 0),
+                y: ship.y + (ship.orientation === 'V' ? i : 0)
+            });
+        }
+    });
+
+    const myHitCells  = [];
+    const myMissCells = [];
+    selfBoard.querySelectorAll('[data-state="hit"]').forEach(c  => myHitCells.push({ x: +c.dataset.x, y: +c.dataset.y }));
+    selfBoard.querySelectorAll('[data-state="miss"]').forEach(c => myMissCells.push({ x: +c.dataset.x, y: +c.dataset.y }));
+
+    // Enemy board: ships = opponentShipCells, my shots on enemy board
+    const oppBoard = document.getElementById('opponent-board');
+    const enemyHitCells  = [];
+    const enemyMissCells = [];
+    oppBoard.querySelectorAll('[data-state="hit"]').forEach(c  => enemyHitCells.push({ x: +c.dataset.x, y: +c.dataset.y }));
+    oppBoard.querySelectorAll('[data-state="miss"]').forEach(c => enemyMissCells.push({ x: +c.dataset.x, y: +c.dataset.y }));
+
+    // Build mini grids
+    buildResultGrid('result-my-grid',    myShipCells,        myHitCells,    myMissCells);
+    buildResultGrid('result-enemy-grid', opponentShipCells,  enemyHitCells, enemyMissCells);
+
+    // Stats
+    const myAcc = myHitCells.length + myMissCells.length > 0
+        ? Math.round(myHitCells.length / (myHitCells.length + myMissCells.length) * 100) : 0;
+    const enemyAcc = enemyHitCells.length + enemyMissCells.length > 0
+        ? Math.round(enemyHitCells.length / (enemyHitCells.length + enemyMissCells.length) * 100) : 0;
+
+    document.getElementById('result-my-stats').textContent =
+        `${myHitCells.length} hits taken · ${myMissCells.length} misses on you`;
+    document.getElementById('result-enemy-stats').textContent =
+        `Your accuracy: ${enemyAcc}% · ${enemyHitCells.length} hits landed`;
+
+    // Header
+    document.getElementById('endgame-icon').textContent    = won ? '🏆' : '💀';
+    document.getElementById('endgame-title').textContent   = won ? 'VICTORY' : 'DEFEATED';
+    document.getElementById('endgame-subtitle').textContent =
+        `${won ? 'Enemy fleet annihilated' : 'Your fleet was destroyed'} · ${shotCount} salvos fired · Accuracy ${won ? enemyAcc : myAcc}%`;
+
+    document.getElementById('endgame-overlay').style.display = 'flex';
+
+    // Animate enemy reveal cells one by one
+    const enemyCells = document.getElementById('result-enemy-grid').querySelectorAll('.rship');
+    enemyCells.forEach((c, i) => {
+        setTimeout(() => c.classList.add('cell-revealed'), 100 + i * 30);
+    });
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -990,30 +1050,30 @@ function handleServerMatrixMessage(packet) {
         myUserId = payload.userId;
         document.getElementById('client-id-tag').innerText = `ID: SYS-${myUserId.substring(0, 8).toUpperCase()}`;
     }
-
     if (type === 'SESSION_STATUS_UPDATE') {
         document.getElementById('slot-counter').innerText = `${payload.playerCount}/2 PLAYERS`;
         document.getElementById('session-status-label').innerText = payload.status;
     }
-
     if (type === 'JOIN_SUCCESS') {
         document.getElementById('lobby-panel').classList.add('hidden');
         document.getElementById('game-workspace').classList.remove('hidden');
         fleetInventory = FLEET_TEMPLATE();
-        enemyFleetStatus = ENEMY_SIZES.map((s, i) => ({ id: `e${i}`, size: s, sunk: false, hitsNeeded: s, hitsLanded: 0 }));
+        enemyFleetStatus = ENEMY_SIZES.map((s, i) => ({ id: `e${i}`, size: s, sunk: false, hitsLanded: 0 }));
         enemyHitBoard = Array(10).fill(null).map(() => Array(10).fill(false));
+        myShotHistory = { hit: [], miss: [] };
         shotCount = 0;
         buildDomMatrices();
+        enableFramePulse();
     }
-
     if (type === 'PLACEMENT_CONFIRMED') {
+        disableFramePulse();
         document.getElementById('drydock-container').innerHTML =
             `<div class="text-center py-4 text-emerald-400 font-mono text-sm animate-pulse">■ AWAITING OPPONENT DEPLOYMENT...</div>`;
     }
-
     if (type === 'TURN_UPDATE') {
         isMyTurn = payload.isYourTurn;
         isGameActive = true;
+        disableFramePulse();
         document.getElementById('placement-action-bar').classList.add('hidden');
         document.getElementById('arena-phase-text').innerText = 'BATTLE';
         buildFleetStatusPanels();
@@ -1021,10 +1081,8 @@ function handleServerMatrixMessage(packet) {
         oppGrid.classList.toggle('pointer-events-none', !isMyTurn);
         oppGrid.classList.toggle('opacity-40', !isMyTurn);
         document.getElementById('turn-alert-banner').innerText = isMyTurn
-            ? '» YOUR TURN — FIRE «'
-            : 'STANDBY — INCOMING SALVO...';
+            ? '» YOUR TURN — FIRE «' : 'STANDBY — INCOMING SALVO...';
     }
-
     if (type === 'FIRE_RESULT') {
         shotCount++;
         const isMine = payload.target === 'opponent';
@@ -1033,53 +1091,24 @@ function handleServerMatrixMessage(packet) {
         if (!isMine && payload.hit) updateMyShipHit(payload.x, payload.y);
         if (isMine  && payload.hit) updateEnemyHit(payload.x, payload.y);
     }
-
     if (type === 'GAME_OVER') {
         if (!isGameActive) return;
         const won = payload.winner === myUserId;
         isGameActive = false;
 
-        // Reveal opponent ships on the opponent board
-        if (payload.opponentShipCells && payload.opponentShipCells.length > 0) {
-            const oppBoard = document.getElementById('opponent-board');
-            payload.opponentShipCells.forEach(({ x, y }) => {
-                const cell = oppBoard.querySelector(`[data-x="${x}"][data-y="${y}"]`);
-                if (cell && !cell.dataset.state) {
-                    cell.className = 'grid-cell rounded-sm border border-slate-500 bg-slate-600';
-                    cell.dataset.state = 'revealed';
-                }
-            });
-        }
-
-        // Small delay so player sees the board reveal before overlay appears
+        // Brief pause so the last shot FX plays out, then show results
         setTimeout(() => {
-            document.getElementById('rematch-result-icon').textContent = won ? '🏆' : '💀';
-            document.getElementById('rematch-title').textContent       = won ? 'VICTORY' : 'DEFEATED';
-            document.getElementById('rematch-subtitle').textContent    = `Fleet concluded in ${shotCount} salvos.`;
-            document.getElementById('rematch-overlay').style.display  = 'flex';
-        }, 1800);
+            showEndGameScreen(won, payload.opponentShipCells || []);
+        }, 1200);
     }
-
     if (type === 'SESSION_RESET') {
-        document.getElementById('rematch-overlay').style.display = 'none';
+        document.getElementById('endgame-overlay').style.display = 'none';
         window.location.reload();
     }
-
     if (type === 'OPPONENT_TEMPORARILY_OFFLINE') {
         document.getElementById('turn-alert-banner').innerText = '⚠ OPPONENT DISCONNECTED — 60s WINDOW';
     }
 }
-
-document.getElementById('btn-rematch').addEventListener('click', () => {
-    document.getElementById('rematch-overlay').style.display = 'none';
-    ws.send(JSON.stringify({ type: 'LEAVE_SESSION' }));
-    // SESSION_RESET from server triggers window.location.reload()
-});
-
-document.getElementById('btn-main-menu').addEventListener('click', () => {
-    document.getElementById('rematch-overlay').style.display = 'none';
-    ws.send(JSON.stringify({ type: 'LEAVE_SESSION' }));
-});
 
 // ════════════════════════════════════════════════════════════════════════════
 //  FIRE
@@ -1087,12 +1116,12 @@ document.getElementById('btn-main-menu').addEventListener('click', () => {
 function dispatchFireOrder(x, y) {
     if (!isMyTurn || !isGameActive) return;
     const cell = document.getElementById('opponent-board').querySelector(`[data-x="${x}"][data-y="${y}"]`);
-    if (cell?.dataset.state) return; // already fired
+    if (cell?.dataset.state) return;
     ws.send(JSON.stringify({ type: 'FIRE_SHOT', payload: { x, y } }));
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  TOOLBAR BUTTONS
+//  BUTTONS
 // ════════════════════════════════════════════════════════════════════════════
 document.getElementById('btn-rotate').addEventListener('click', () => {
     if (!selectedShip) return;
@@ -1102,15 +1131,12 @@ document.getElementById('btn-rotate').addEventListener('click', () => {
 
 document.getElementById('btn-auto-place').addEventListener('click', () => {
     if (!selectedShip) return;
-    // Auto-place just the held ship
     const ship = selectedShip;
     let placed = false, tries = 0;
     while (!placed && tries++ < 500) {
         const ori = Math.random() < 0.5 ? 'H' : 'V';
-        const mx = ori === 'H' ? 10 - ship.size : 9;
-        const my = ori === 'V' ? 10 - ship.size : 9;
-        const rx = Math.floor(Math.random() * (mx + 1));
-        const ry = Math.floor(Math.random() * (my + 1));
+        const rx = Math.floor(Math.random() * (ori === 'H' ? 11 - ship.size : 10));
+        const ry = Math.floor(Math.random() * (ori === 'V' ? 11 - ship.size : 10));
         let ok = true;
         for (let i = 0; i < ship.size; i++) {
             const nx = rx + (ori === 'H' ? i : 0);
@@ -1121,25 +1147,27 @@ document.getElementById('btn-auto-place').addEventListener('click', () => {
             ship.orientation = ori; ship.x = rx; ship.y = ry; ship.placed = true;
             selectedShip = null;
             document.getElementById('placement-action-bar').classList.add('invisible');
-            updateOrAddSprite(ship);
-            playPlace();
-            placed = true;
+            updateOrAddSprite(ship); playPlace(); placed = true;
         }
     }
     renderDrydockList(); refreshSelfBoardGridDisplay();
 });
 
-document.getElementById('btn-auto-place-all').addEventListener('click', () => {
-    autoPlaceAll();
-});
-
-document.getElementById('btn-join-session').addEventListener('click',  () => ws.send(JSON.stringify({ type: 'JOIN_SESSION' })));
-document.getElementById('btn-leave-session').addEventListener('click', () => ws.send(JSON.stringify({ type: 'LEAVE_SESSION' })));
+document.getElementById('btn-auto-place-all').addEventListener('click', autoPlaceAll);
+document.getElementById('btn-join-session').addEventListener('click',   () => ws.send(JSON.stringify({ type: 'JOIN_SESSION' })));
+document.getElementById('btn-leave-session').addEventListener('click',  () => ws.send(JSON.stringify({ type: 'LEAVE_SESSION' })));
 document.getElementById('btn-lock-ships').addEventListener('click', () => {
     ws.send(JSON.stringify({ type: 'PLACE_SHIPS', payload: { ships: fleetInventory.map(s => ({ x: s.x, y: s.y, size: s.size, orientation: s.orientation })) }}));
 });
+document.getElementById('btn-rematch').addEventListener('click', () => {
+    document.getElementById('endgame-overlay').style.display = 'none';
+    ws.send(JSON.stringify({ type: 'LEAVE_SESSION' }));
+});
+document.getElementById('btn-main-menu').addEventListener('click', () => {
+    document.getElementById('endgame-overlay').style.display = 'none';
+    ws.send(JSON.stringify({ type: 'LEAVE_SESSION' }));
+});
 
-// Right-click / two-finger tap to rotate held ship
 document.addEventListener('contextmenu', (e) => {
     if (!selectedShip) return;
     e.preventDefault();
@@ -1147,11 +1175,677 @@ document.addEventListener('contextmenu', (e) => {
     refreshSelfBoardGridDisplay();
 });
 
-// Recompute grid geometry on resize (important for mobile)
-window.addEventListener('resize', () => {
-    cacheGridGeometry();
-    rebuildShipOverlay();
-});
+window.addEventListener('resize', () => { cacheGridGeometry(); rebuildShipOverlay(); });
+
+// ════════════════════════════════════════════════════════════════════════════
+//  THEME EDITOR WIDGET
+// ════════════════════════════════════════════════════════════════════════════
+(function initThemeEditor() {
+
+    // ── Token definitions ──────────────────────────────────────────────────
+    const TOKENS = [
+        { section: 'Backgrounds' },
+        { key: '--theme-bg-primary',   label: 'Page bg (deep)',     type: 'color' },
+        { key: '--theme-bg-secondary', label: 'Page bg (mid)',      type: 'color' },
+        { key: '--theme-bg-panel',     label: 'Panel bg',           type: 'color-alpha' },
+        { key: '--theme-bg-surface',   label: 'Surface / board',    type: 'color' },
+        { key: '--theme-bg-cell',      label: 'Grid cell bg',       type: 'color' },
+        { section: 'Accent Colors' },
+        { key: '--theme-accent-gold',  label: 'Gold accent',        type: 'color' },
+        { key: '--theme-accent-blue',  label: 'Blue / neon',        type: 'color' },
+        { key: '--theme-accent-red',   label: 'Hit / danger',       type: 'color' },
+        { key: '--theme-accent-green', label: 'Success / console',  type: 'color' },
+        { section: 'Text' },
+        { key: '--theme-text-primary', label: 'Primary text',       type: 'color' },
+        { key: '--theme-text-muted',   label: 'Muted text',         type: 'color' },
+        { key: '--theme-text-faint',   label: 'Faint / labels',     type: 'color' },
+        { section: 'Borders & Font' },
+        { key: '--theme-border',       label: 'Border color',       type: 'color-alpha' },
+        { key: '--theme-font',         label: 'Font family',        type: 'font' },
+    ];
+
+    const FONT_OPTIONS = [
+        { label: 'Cormorant Garamond (default)', value: "'Cormorant Garamond', serif" },
+        { label: 'Playfair Display',             value: "'Playfair Display', serif" },
+        { label: 'Courier New (mono)',            value: "'Courier New', Courier, monospace" },
+        { label: 'Georgia (serif)',               value: "Georgia, serif" },
+        { label: 'Arial (sans-serif)',            value: "Arial, sans-serif" },
+        { label: 'Trebuchet MS',                  value: "'Trebuchet MS', sans-serif" },
+    ];
+
+    const PRESETS = {
+        'Naval Dark (default)': {
+            '--theme-bg-primary':    '#080e1a',
+            '--theme-bg-secondary':  '#0d1525',
+            '--theme-bg-panel':      'rgba(13,21,37,0.9)',
+            '--theme-bg-surface':    '#0f172a',
+            '--theme-bg-cell':       '#020617',
+            '--theme-accent-gold':   '#c9a84c',
+            '--theme-accent-blue':   '#38bdf8',
+            '--theme-accent-red':    '#ef4444',
+            '--theme-accent-green':  '#22c55e',
+            '--theme-text-primary':  '#e2e8f0',
+            '--theme-text-muted':    '#94a3b8',
+            '--theme-text-faint':    '#475569',
+            '--theme-border':        'rgba(201,168,76,0.2)',
+            '--theme-font':          "'Cormorant Garamond', serif",
+        },
+        'Crimson War': {
+            '--theme-bg-primary':    '#0f0505',
+            '--theme-bg-secondary':  '#1a0a0a',
+            '--theme-bg-panel':      'rgba(30,8,8,0.92)',
+            '--theme-bg-surface':    '#1c0707',
+            '--theme-bg-cell':       '#0a0202',
+            '--theme-accent-gold':   '#e55',
+            '--theme-accent-blue':   '#ff7b7b',
+            '--theme-accent-red':    '#ff2222',
+            '--theme-accent-green':  '#ff9966',
+            '--theme-text-primary':  '#ffd5d5',
+            '--theme-text-muted':    '#c47a7a',
+            '--theme-text-faint':    '#7a3030',
+            '--theme-border':        'rgba(220,50,50,0.25)',
+            '--theme-font':          "'Playfair Display', serif",
+        },
+        'Arctic Ops': {
+            '--theme-bg-primary':    '#0a1628',
+            '--theme-bg-secondary':  '#0d1f38',
+            '--theme-bg-panel':      'rgba(10,22,44,0.93)',
+            '--theme-bg-surface':    '#0c1a30',
+            '--theme-bg-cell':       '#060e1c',
+            '--theme-accent-gold':   '#7dd3fc',
+            '--theme-accent-blue':   '#e0f2fe',
+            '--theme-accent-red':    '#67e8f9',
+            '--theme-accent-green':  '#34d399',
+            '--theme-text-primary':  '#f0f9ff',
+            '--theme-text-muted':    '#7dd3fc',
+            '--theme-text-faint':    '#38bdf8',
+            '--theme-border':        'rgba(125,211,252,0.25)',
+            '--theme-font':          "'Courier New', Courier, monospace",
+        },
+        'Phantom Green': {
+            '--theme-bg-primary':    '#050f07',
+            '--theme-bg-secondary':  '#091509',
+            '--theme-bg-panel':      'rgba(5,15,7,0.95)',
+            '--theme-bg-surface':    '#071209',
+            '--theme-bg-cell':       '#020702',
+            '--theme-accent-gold':   '#22c55e',
+            '--theme-accent-blue':   '#4ade80',
+            '--theme-accent-red':    '#86efac',
+            '--theme-accent-green':  '#16a34a',
+            '--theme-text-primary':  '#dcfce7',
+            '--theme-text-muted':    '#4ade80',
+            '--theme-text-faint':    '#166534',
+            '--theme-border':        'rgba(34,197,94,0.2)',
+            '--theme-font':          "'Courier New', Courier, monospace",
+        },
+    };
+
+    // ── Load from localStorage ─────────────────────────────────────────────
+    const saved = JSON.parse(localStorage.getItem('nw_theme') || 'null');
+    if (saved) Object.entries(saved).forEach(([k, v]) => document.documentElement.style.setProperty(k, v));
+
+    // ── Toggle button ──────────────────────────────────────────────────────
+    // Hide entirely on mobile — touch users get the mobile placement UI instead
+    const isMobile = () => window.innerWidth < 768 || ('ontouchstart' in window && window.innerWidth < 1024);
+    if (isMobile()) return;
+
+    const toggleBtn = document.createElement('button');
+    toggleBtn.id = 'theme-toggle-btn';
+    toggleBtn.title = 'Theme Editor (Ctrl+E)';
+    toggleBtn.innerHTML = '🎨';
+    Object.assign(toggleBtn.style, {
+        position: 'fixed', bottom: '20px', right: '20px', zIndex: '99999',
+        width: '44px', height: '44px', borderRadius: '50%',
+        background: 'rgba(13,21,37,0.92)', border: '1px solid rgba(201,168,76,0.5)',
+        color: '#c9a84c', fontSize: '20px', cursor: 'pointer',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        boxShadow: '0 0 14px rgba(201,168,76,0.25)', transition: 'all 0.2s',
+        backdropFilter: 'blur(6px)',
+    });
+
+    // ── Panel ──────────────────────────────────────────────────────────────
+    const panel = document.createElement('div');
+    panel.id = 'theme-panel';
+    Object.assign(panel.style, {
+        position: 'fixed', bottom: '72px', right: '20px', zIndex: '99998',
+        width: '280px', maxHeight: '80vh',
+        background: 'rgba(8,14,26,0.97)', border: '1px solid rgba(201,168,76,0.3)',
+        borderRadius: '14px', boxShadow: '0 8px 40px rgba(0,0,0,0.7)',
+        backdropFilter: 'blur(16px)', fontFamily: 'monospace',
+        display: 'none', flexDirection: 'column', overflow: 'hidden',
+        userSelect: 'none',
+    });
+
+    // ── Header (drag handle) ───────────────────────────────────────────────
+    const header = document.createElement('div');
+    Object.assign(header.style, {
+        padding: '10px 14px', display: 'flex', alignItems: 'center',
+        justifyContent: 'space-between', cursor: 'grab',
+        borderBottom: '1px solid rgba(201,168,76,0.15)',
+        background: 'rgba(201,168,76,0.06)',
+    });
+    header.innerHTML = `
+        <span style="color:#c9a84c;font-size:11px;font-weight:bold;letter-spacing:2px;">THEME EDITOR</span>
+        <div style="display:flex;gap:6px;align-items:center;">
+            <span id="tw-hotkey" style="font-size:9px;color:#475569;padding:2px 5px;border:1px solid #1e293b;border-radius:3px;">Ctrl+E</span>
+            <button id="tw-close" style="background:none;border:none;color:#64748b;font-size:14px;cursor:pointer;padding:0 2px;line-height:1;">✕</button>
+        </div>
+    `;
+
+    // ── Preset bar ─────────────────────────────────────────────────────────
+    const presetBar = document.createElement('div');
+    Object.assign(presetBar.style, {
+        padding: '8px 14px', display: 'flex', flexWrap: 'wrap', gap: '5px',
+        borderBottom: '1px solid rgba(201,168,76,0.1)',
+    });
+    Object.keys(PRESETS).forEach(name => {
+        const btn = document.createElement('button');
+        btn.textContent = name;
+        Object.assign(btn.style, {
+            fontSize: '9px', padding: '3px 7px', borderRadius: '4px', cursor: 'pointer',
+            background: 'rgba(201,168,76,0.08)', border: '1px solid rgba(201,168,76,0.25)',
+            color: '#c9a84c', transition: 'all 0.15s',
+        });
+        btn.addEventListener('mouseenter', () => btn.style.background = 'rgba(201,168,76,0.2)');
+        btn.addEventListener('mouseleave', () => btn.style.background = 'rgba(201,168,76,0.08)');
+        btn.addEventListener('click', () => applyPreset(PRESETS[name]));
+        presetBar.appendChild(btn);
+    });
+
+    // ── Scrollable token area ──────────────────────────────────────────────
+    const scrollArea = document.createElement('div');
+    Object.assign(scrollArea.style, {
+        overflowY: 'auto', flex: '1',
+        padding: '8px 14px 12px',
+    });
+
+    function hexToRgba(hex) {
+        const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+        return `rgba(${r},${g},${b},1)`;
+    }
+    function cssColorToHex(val) {
+        // Parse rgba or rgb to hex for color input
+        const m = val.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+        if (m) return '#' + [m[1],m[2],m[3]].map(n => parseInt(n).toString(16).padStart(2,'0')).join('');
+        if (val.startsWith('#')) return val.substring(0,7);
+        return '#000000';
+    }
+    function cssColorAlpha(val) {
+        const m = val.match(/rgba?\(\d+,\s*\d+,\s*\d+,?\s*([\d.]+)?/);
+        return m && m[1] !== undefined ? parseFloat(m[1]) : 1;
+    }
+
+    function getVar(key) {
+        return getComputedStyle(document.documentElement).getPropertyValue(key).trim()
+            || document.documentElement.style.getPropertyValue(key).trim();
+    }
+
+    function setVar(key, val) {
+        document.documentElement.style.setProperty(key, val);
+        saveTheme();
+    }
+
+    function saveTheme() {
+        const data = {};
+        TOKENS.filter(t => t.key).forEach(t => {
+            const v = getComputedStyle(document.documentElement).getPropertyValue(t.key).trim()
+                   || document.documentElement.style.getPropertyValue(t.key).trim();
+            if (v) data[t.key] = v;
+        });
+        localStorage.setItem('nw_theme', JSON.stringify(data));
+    }
+
+    function applyPreset(preset) {
+        Object.entries(preset).forEach(([k, v]) => document.documentElement.style.setProperty(k, v));
+        saveTheme();
+        refreshRows();
+    }
+
+    function refreshRows() {
+        scrollArea.innerHTML = '';
+        TOKENS.forEach(token => {
+            if (token.section) {
+                const sec = document.createElement('div');
+                Object.assign(sec.style, {
+                    fontSize: '9px', letterSpacing: '2px', color: '#475569',
+                    textTransform: 'uppercase', padding: '10px 0 4px',
+                    borderTop: '1px solid rgba(255,255,255,0.05)',
+                    marginTop: '4px',
+                });
+                sec.textContent = token.section;
+                scrollArea.appendChild(sec);
+                return;
+            }
+
+            const row = document.createElement('div');
+            Object.assign(row.style, {
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '4px 0', gap: '8px',
+            });
+
+            const label = document.createElement('span');
+            label.textContent = token.label;
+            Object.assign(label.style, { fontSize: '10px', color: '#94a3b8', flex: '1', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' });
+
+            if (token.type === 'font') {
+                const sel = document.createElement('select');
+                Object.assign(sel.style, {
+                    fontSize: '9px', background: '#0d1525', color: '#c9a84c',
+                    border: '1px solid rgba(201,168,76,0.3)', borderRadius: '4px',
+                    padding: '2px 4px', maxWidth: '120px', cursor: 'pointer',
+                });
+                FONT_OPTIONS.forEach(opt => {
+                    const o = document.createElement('option');
+                    o.value = opt.value; o.textContent = opt.label;
+                    if (getVar(token.key).includes(opt.value.replace(/'/g,'').split(',')[0].trim())) o.selected = true;
+                    sel.appendChild(o);
+                });
+                sel.addEventListener('change', () => setVar(token.key, sel.value));
+                row.appendChild(label);
+                row.appendChild(sel);
+
+            } else if (token.type === 'color') {
+                const currentVal = getVar(token.key) || '#000000';
+                const hexVal = cssColorToHex(currentVal);
+
+                const wrap = document.createElement('div');
+                wrap.style.display = 'flex'; wrap.style.alignItems = 'center'; wrap.style.gap = '4px';
+
+                const swatch = document.createElement('div');
+                Object.assign(swatch.style, {
+                    width: '18px', height: '18px', borderRadius: '4px', cursor: 'pointer',
+                    background: currentVal, border: '1px solid rgba(255,255,255,0.15)',
+                    flexShrink: '0',
+                });
+
+                const picker = document.createElement('input');
+                picker.type = 'color'; picker.value = hexVal;
+                Object.assign(picker.style, { width: '0', height: '0', opacity: '0', position: 'absolute', pointerEvents: 'none' });
+
+                swatch.addEventListener('click', () => picker.click());
+                picker.addEventListener('input', () => {
+                    setVar(token.key, picker.value);
+                    swatch.style.background = picker.value;
+                });
+
+                wrap.appendChild(picker);
+                wrap.appendChild(swatch);
+                row.appendChild(label);
+                row.appendChild(wrap);
+
+            } else if (token.type === 'color-alpha') {
+                const currentVal = getVar(token.key) || 'rgba(0,0,0,1)';
+                const hexVal = cssColorToHex(currentVal);
+                const alpha  = cssColorAlpha(currentVal);
+
+                const wrap = document.createElement('div');
+                Object.assign(wrap.style, { display: 'flex', alignItems: 'center', gap: '4px', flexShrink: '0' });
+
+                const swatch = document.createElement('div');
+                Object.assign(swatch.style, {
+                    width: '18px', height: '18px', borderRadius: '4px', cursor: 'pointer',
+                    background: currentVal, border: '1px solid rgba(255,255,255,0.15)',
+                });
+
+                const picker = document.createElement('input');
+                picker.type = 'color'; picker.value = hexVal;
+                Object.assign(picker.style, { width: '0', height: '0', opacity: '0', position: 'absolute', pointerEvents: 'none' });
+
+                const alphaSlider = document.createElement('input');
+                alphaSlider.type = 'range'; alphaSlider.min = '0'; alphaSlider.max = '1'; alphaSlider.step = '0.01';
+                alphaSlider.value = alpha;
+                Object.assign(alphaSlider.style, { width: '50px', accentColor: '#c9a84c', cursor: 'pointer' });
+
+                function updateRgba() {
+                    const hex = picker.value;
+                    const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+                    const a = parseFloat(alphaSlider.value);
+                    const val = `rgba(${r},${g},${b},${a})`;
+                    setVar(token.key, val);
+                    swatch.style.background = val;
+                }
+
+                swatch.addEventListener('click', () => picker.click());
+                picker.addEventListener('input', updateRgba);
+                alphaSlider.addEventListener('input', updateRgba);
+
+                wrap.appendChild(picker);
+                wrap.appendChild(swatch);
+                wrap.appendChild(alphaSlider);
+                row.appendChild(label);
+                row.appendChild(wrap);
+            }
+
+            scrollArea.appendChild(row);
+        });
+    }
+
+    // ── Footer actions ─────────────────────────────────────────────────────
+    const footer = document.createElement('div');
+    Object.assign(footer.style, {
+        padding: '8px 14px', display: 'flex', gap: '6px',
+        borderTop: '1px solid rgba(201,168,76,0.1)',
+    });
+
+    const resetBtn = document.createElement('button');
+    resetBtn.textContent = '↺ Reset';
+    Object.assign(resetBtn.style, {
+        flex: '1', fontSize: '10px', padding: '5px', borderRadius: '6px', cursor: 'pointer',
+        background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444',
+    });
+    resetBtn.addEventListener('click', () => {
+        localStorage.removeItem('nw_theme');
+        TOKENS.filter(t => t.key).forEach(t => document.documentElement.style.removeProperty(t.key));
+        refreshRows();
+    });
+
+    const copyBtn = document.createElement('button');
+    copyBtn.textContent = '⧉ Copy CSS';
+    Object.assign(copyBtn.style, {
+        flex: '1', fontSize: '10px', padding: '5px', borderRadius: '6px', cursor: 'pointer',
+        background: 'rgba(56,189,248,0.1)', border: '1px solid rgba(56,189,248,0.3)', color: '#38bdf8',
+    });
+    copyBtn.addEventListener('click', () => {
+        const vars = TOKENS.filter(t => t.key).map(t => {
+            const v = getComputedStyle(document.documentElement).getPropertyValue(t.key).trim()
+                   || document.documentElement.style.getPropertyValue(t.key).trim();
+            return `    ${t.key}: ${v};`;
+        }).join('\n');
+        navigator.clipboard.writeText(`:root {\n${vars}\n}`).then(() => {
+            copyBtn.textContent = '✓ Copied!';
+            setTimeout(() => copyBtn.textContent = '⧉ Copy CSS', 1800);
+        });
+    });
+
+    footer.appendChild(resetBtn);
+    footer.appendChild(copyBtn);
+
+    // ── Assemble panel ─────────────────────────────────────────────────────
+    panel.appendChild(header);
+    panel.appendChild(presetBar);
+    panel.appendChild(scrollArea);
+    panel.appendChild(footer);
+
+    document.body.appendChild(toggleBtn);
+    document.body.appendChild(panel);
+
+    // ── Toggle logic ───────────────────────────────────────────────────────
+    let panelOpen = false;
+    function openPanel()  { panelOpen = true;  panel.style.display = 'flex'; toggleBtn.style.boxShadow = '0 0 20px rgba(201,168,76,0.5)'; refreshRows(); }
+    function closePanel() { panelOpen = false; panel.style.display = 'none'; toggleBtn.style.boxShadow = '0 0 14px rgba(201,168,76,0.25)'; }
+    function togglePanel() { panelOpen ? closePanel() : openPanel(); }
+
+    toggleBtn.addEventListener('click', togglePanel);
+    header.querySelector('#tw-close').addEventListener('click', closePanel);
+
+    // Ctrl+E hotkey
+    document.addEventListener('keydown', (e) => {
+        if (e.ctrlKey && e.key === 'e') { e.preventDefault(); togglePanel(); }
+    });
+
+    // ── Drag to move ───────────────────────────────────────────────────────
+    let dragging = false, dragStartX, dragStartY, panelStartRight, panelStartBottom;
+    header.addEventListener('mousedown', (e) => {
+        dragging = true;
+        dragStartX = e.clientX; dragStartY = e.clientY;
+        const rect = panel.getBoundingClientRect();
+        panelStartRight  = window.innerWidth  - rect.right;
+        panelStartBottom = window.innerHeight - rect.bottom;
+        header.style.cursor = 'grabbing';
+        e.preventDefault();
+    });
+    document.addEventListener('mousemove', (e) => {
+        if (!dragging) return;
+        const dx = dragStartX - e.clientX;
+        const dy = dragStartY - e.clientY;
+        panel.style.right  = Math.max(4, panelStartRight  + dx) + 'px';
+        panel.style.bottom = Math.max(4, panelStartBottom + dy) + 'px';
+        toggleBtn.style.right  = panel.style.right;
+        toggleBtn.style.bottom = (parseFloat(panel.style.bottom) - 52) + 'px';
+    });
+    document.addEventListener('mouseup', () => {
+        dragging = false;
+        header.style.cursor = 'grab';
+    });
+
+    refreshRows();
+})();
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MOBILE PLACEMENT MODE
+// ════════════════════════════════════════════════════════════════════════════
+function isMobileUser() {
+    return window.innerWidth < 768 || ('ontouchstart' in window && window.innerWidth < 1024);
+}
+
+let mobilePlacementActive = false;
+let mobilePlacementCell   = { x: 0, y: 0 };
+
+function mobilePlacementMode(ship) {
+    if (!isMobileUser()) return;
+    mobilePlacementActive = true;
+    mobilePlacementCell   = { x: ship.x ?? 0, y: ship.y ?? 0 };
+    hoverCell = { ...mobilePlacementCell };
+
+    // Build or reuse floating controls overlay
+    let overlay = document.getElementById('mobile-place-overlay');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'mobile-place-overlay';
+        Object.assign(overlay.style, {
+            position: 'fixed', zIndex: '10000', pointerEvents: 'none',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0',
+        });
+
+        // Direction pad wrapper
+        const dpad = document.createElement('div');
+        dpad.id = 'mpo-dpad';
+        Object.assign(dpad.style, {
+            display: 'grid', gridTemplateColumns: 'repeat(3, 40px)',
+            gridTemplateRows: 'repeat(3, 40px)', gap: '3px',
+            pointerEvents: 'all',
+        });
+
+        const arrows = [
+            { label: '▲', dr: 0, dc: -1, pos: [0,1] },
+            { label: '◀', dr: 0, dc: -1, pos: [1,0] },
+            { label: '◀', dr: 0, dc: -1, pos: [1,0] }, // placeholder — rebuilt below
+            { label: '▼', dr: 1, dc:  0, pos: [2,1] },
+        ];
+        // Build 3x3 grid: up, left, center(rotate), right, down
+        const DPAD_LAYOUT = [
+            { r: 0, c: 1, label: '▲',  dy: -1, dx:  0, action: 'move'   },
+            { r: 1, c: 0, label: '◀',  dy:  0, dx: -1, action: 'move'   },
+            { r: 1, c: 1, label: '↻',  dy:  0, dx:  0, action: 'rotate' },
+            { r: 1, c: 2, label: '▶',  dy:  0, dx:  1, action: 'move'   },
+            { r: 2, c: 1, label: '▼',  dy:  1, dx:  0, action: 'move'   },
+        ];
+
+        for (let row = 0; row < 3; row++) {
+            for (let col = 0; col < 3; col++) {
+                const def = DPAD_LAYOUT.find(d => d.r === row && d.c === col);
+                const btn = document.createElement('button');
+                if (def) {
+                    btn.textContent = def.label;
+                    Object.assign(btn.style, {
+                        width: '40px', height: '40px', borderRadius: '8px', fontSize: '16px',
+                        fontWeight: 'bold', cursor: 'pointer', border: 'none',
+                        background: def.action === 'rotate'
+                            ? 'rgba(201,168,76,0.85)' : 'rgba(30,41,60,0.92)',
+                        color: def.action === 'rotate' ? '#0d1525' : '#c9a84c',
+                        boxShadow: '0 2px 10px rgba(0,0,0,0.5)',
+                        backdropFilter: 'blur(6px)',
+                        WebkitBackdropFilter: 'blur(6px)',
+                        touchAction: 'manipulation',
+                        transition: 'transform 0.1s, opacity 0.1s',
+                    });
+                    btn.dataset.action = def.action;
+                    btn.dataset.dx = def.dx;
+                    btn.dataset.dy = def.dy;
+                    btn.addEventListener('touchstart', (e) => {
+                        e.preventDefault(); e.stopPropagation();
+                        btn.style.transform = 'scale(0.88)';
+                        if (def.action === 'rotate') {
+                            mobilePlacementRotate();
+                        } else {
+                            mobilePlacementMove(def.dx, def.dy);
+                        }
+                    }, { passive: false });
+                    btn.addEventListener('touchend', (e) => {
+                        e.preventDefault();
+                        btn.style.transform = 'scale(1)';
+                    }, { passive: false });
+                } else {
+                    // Empty corner cell
+                    Object.assign(btn.style, { background: 'transparent', border: 'none', cursor: 'default' });
+                    btn.disabled = true;
+                }
+                dpad.appendChild(btn);
+            }
+        }
+
+        // Ship name label
+        const nameLabel = document.createElement('div');
+        nameLabel.id = 'mpo-name';
+        Object.assign(nameLabel.style, {
+            fontSize: '10px', letterSpacing: '2px', color: '#c9a84c',
+            textTransform: 'uppercase', fontFamily: 'monospace',
+            padding: '4px 0 2px', textAlign: 'center', pointerEvents: 'none',
+        });
+
+        // Confirm button
+        const confirmBtn = document.createElement('button');
+        confirmBtn.id = 'mpo-confirm';
+        confirmBtn.textContent = '⚓ Place';
+        Object.assign(confirmBtn.style, {
+            marginTop: '6px', padding: '10px 24px', borderRadius: '10px',
+            fontSize: '13px', fontWeight: 'bold', letterSpacing: '1px',
+            background: 'linear-gradient(135deg,#22c55e,#16a34a)',
+            color: '#0f172a', border: 'none', cursor: 'pointer',
+            boxShadow: '0 0 16px rgba(34,197,94,0.4)',
+            pointerEvents: 'all', touchAction: 'manipulation',
+            transition: 'transform 0.1s',
+        });
+        confirmBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault(); e.stopPropagation();
+            confirmBtn.style.transform = 'scale(0.93)';
+            mobilePlacementConfirm();
+        }, { passive: false });
+        confirmBtn.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            confirmBtn.style.transform = 'scale(1)';
+        }, { passive: false });
+
+        // Cancel button
+        const cancelBtn = document.createElement('button');
+        cancelBtn.id = 'mpo-cancel';
+        cancelBtn.textContent = '✕ Cancel';
+        Object.assign(cancelBtn.style, {
+            marginTop: '4px', padding: '6px 18px', borderRadius: '8px',
+            fontSize: '11px', fontWeight: 'bold',
+            background: 'rgba(239,68,68,0.15)', color: '#ef4444',
+            border: '1px solid rgba(239,68,68,0.35)', cursor: 'pointer',
+            pointerEvents: 'all', touchAction: 'manipulation',
+        });
+        cancelBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault(); e.stopPropagation();
+            dismissMobilePlacement();
+        }, { passive: false });
+
+        overlay.appendChild(nameLabel);
+        overlay.appendChild(dpad);
+        overlay.appendChild(confirmBtn);
+        overlay.appendChild(cancelBtn);
+        document.body.appendChild(overlay);
+    }
+
+    document.getElementById('mpo-name').textContent = ship.name + ' · ' + ship.size + ' cells';
+    mobilePlacementPosition();
+}
+
+function mobilePlacementPosition() {
+    const overlay = document.getElementById('mobile-place-overlay');
+    if (!overlay || !selectedShip) return;
+
+    const selfBoard = document.getElementById('self-board');
+    if (!selfBoard) return;
+    const boardRect = selfBoard.getBoundingClientRect();
+
+    // Center overlay above the board
+    const overlayW = 134; // ~3*40 + 2*3
+    const left = boardRect.left + (boardRect.width / 2) - (overlayW / 2);
+    const top  = Math.max(8, boardRect.top - 180);
+
+    overlay.style.left    = left + 'px';
+    overlay.style.top     = top  + 'px';
+    overlay.style.display = 'flex';
+
+    // Pulse confirm if placement is valid
+    const confirmBtn = document.getElementById('mpo-confirm');
+    const valid = isMobileCellValid(mobilePlacementCell.x, mobilePlacementCell.y, selectedShip);
+    if (confirmBtn) {
+        confirmBtn.style.opacity = valid ? '1' : '0.4';
+        confirmBtn.style.boxShadow = valid
+            ? '0 0 16px rgba(34,197,94,0.5)' : 'none';
+    }
+}
+
+function isMobileCellValid(x, y, ship) {
+    if (!ship) return false;
+    const ori = ship.orientation;
+    for (let i = 0; i < ship.size; i++) {
+        const nx = x + (ori === 'H' ? i : 0);
+        const ny = y + (ori === 'V' ? i : 0);
+        if (nx < 0 || nx >= 10 || ny < 0 || ny >= 10) return false;
+        if (fleetInventory.some(s => s.placed && s.id !== ship.id && isShipAtCoordinate(s, nx, ny))) return false;
+    }
+    return true;
+}
+
+function mobilePlacementMove(dx, dy) {
+    if (!selectedShip) return;
+    let nx = mobilePlacementCell.x + dx;
+    let ny = mobilePlacementCell.y + dy;
+    // Clamp so ship head stays in bounds (tail clamping happens in validation)
+    nx = Math.max(0, Math.min(9, nx));
+    ny = Math.max(0, Math.min(9, ny));
+    mobilePlacementCell = { x: nx, y: ny };
+    hoverCell = { ...mobilePlacementCell };
+    refreshSelfBoardGridDisplay();
+    mobilePlacementPosition();
+}
+
+function mobilePlacementRotate() {
+    if (!selectedShip) return;
+    selectedShip.orientation = selectedShip.orientation === 'H' ? 'V' : 'H';
+    hoverCell = { ...mobilePlacementCell };
+    refreshSelfBoardGridDisplay();
+    mobilePlacementPosition();
+    // Update name label to show orientation
+    const nameEl = document.getElementById('mpo-name');
+    if (nameEl && selectedShip) {
+        nameEl.textContent = selectedShip.name + ' · ' + selectedShip.size + ' cells · ' + selectedShip.orientation;
+    }
+}
+
+function mobilePlacementConfirm() {
+    if (!selectedShip) return;
+    const { x, y } = mobilePlacementCell;
+    if (!isMobileCellValid(x, y, selectedShip)) return;
+    tryPlaceShip(x, y);
+    dismissMobilePlacement();
+}
+
+function dismissMobilePlacement() {
+    mobilePlacementActive = false;
+    const overlay = document.getElementById('mobile-place-overlay');
+    if (overlay) overlay.style.display = 'none';
+    if (selectedShip) {
+        selectedShip = null;
+        document.getElementById('placement-action-bar').classList.add('invisible');
+        renderDrydockList(); refreshSelfBoardGridDisplay();
+    }
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 //  HELPERS

@@ -10,23 +10,14 @@ const app = express();
 const server = createServer(app);
 const wss = new WebSocketServer({ server });
 
-// --- FIXED ASSET ROUTING DIRECTORY ---
-// This ensures Express reads the 'public' folder right next to your server file
 app.use(express.static(path.join(__dirname, 'public')));
-// Fallback if public is at your repository root level instead:
 app.use(express.static(path.join(__dirname, '../public')));
 
 let globalSession = createFreshSession();
 let disconnectTimers = new Map();
 
 function createFreshSession() {
-    return {
-        status: 'LOBBY',
-        players: [],
-        userIds: [],
-        turnIdx: 0,
-        gameState: {}
-    };
+    return { status: 'LOBBY', players: [], userIds: [], turnIdx: 0, gameState: {} };
 }
 
 function createEmptyBoard() {
@@ -56,14 +47,12 @@ function sendTurnUpdate() {
 function resetEntireSession(reasonMessage) {
     for (let timer of disconnectTimers.values()) clearTimeout(timer);
     disconnectTimers.clear();
-
     wss.clients.forEach(client => {
         if (client.readyState === 1) {
             client.send(JSON.stringify({ type: 'SESSION_RESET', message: reasonMessage }));
             client.isInSession = false;
         }
     });
-
     globalSession = createFreshSession();
     broadcastSessionStatus();
 }
@@ -88,6 +77,12 @@ wss.on('connection', (ws) => {
         if (!ws.isInSession) return;
         globalSession.players = globalSession.players.filter(p => p.userId !== ws.userId);
 
+        // If session is FINISHED or 0 players remain, reset immediately
+        if (globalSession.status === 'FINISHED' || globalSession.players.length === 0) {
+            resetEntireSession('Session ended — all players disconnected.');
+            return;
+        }
+
         const timerId = setTimeout(() => {
             resetEntireSession(`Recovery window expired for user ${ws.userId.substring(0,5)}.`);
         }, 60000);
@@ -95,9 +90,9 @@ wss.on('connection', (ws) => {
         disconnectTimers.set(ws.userId, timerId);
 
         globalSession.players.forEach(p => {
-            p.send(JSON.stringify({ 
-                type: 'OPPONENT_TEMPORARILY_OFFLINE', 
-                message: 'Opponent disconnected. 60s recovery window active.' 
+            p.send(JSON.stringify({
+                type: 'OPPONENT_TEMPORARILY_OFFLINE',
+                message: 'Opponent disconnected. 60s recovery window active.'
             }));
         });
         broadcastSessionStatus();
@@ -108,6 +103,7 @@ function handleClientAction(ws, packet) {
     const { type, payload } = packet;
 
     if (type === 'JOIN_SESSION') {
+        // Reconnect existing user
         if (globalSession.userIds.includes(ws.userId)) {
             if (disconnectTimers.has(ws.userId)) {
                 clearTimeout(disconnectTimers.get(ws.userId));
@@ -116,14 +112,15 @@ function handleClientAction(ws, packet) {
             const oldIdx = globalSession.userIds.indexOf(ws.userId);
             globalSession.players[oldIdx] = ws;
             ws.isInSession = true;
-
             ws.send(JSON.stringify({ type: 'JOIN_SUCCESS' }));
             if (globalSession.status === 'BATTLE') sendTurnUpdate();
             else broadcastSessionStatus();
             return;
         }
 
-        if (globalSession.players.length >= 2 || (globalSession.status !== 'LOBBY' && globalSession.status !== 'PLACEMENT')) {
+        // Session is locked (in progress with 2 players, or FINISHED)
+        if (globalSession.players.length >= 2 ||
+            (globalSession.status !== 'LOBBY' && globalSession.status !== 'PLACEMENT')) {
             return ws.send(JSON.stringify({ type: 'ERROR', message: 'Session is full or unavailable.' }));
         }
 
@@ -134,7 +131,9 @@ function handleClientAction(ws, packet) {
         globalSession.gameState[ws.userId] = {
             board: createEmptyBoard(),
             hits: createEmptyBoard(),
-            ready: false
+            ready: false,
+            // Store original ship layout for reveal
+            originalBoard: null
         };
 
         if (globalSession.players.length === 2) globalSession.status = 'PLACEMENT';
@@ -146,7 +145,7 @@ function handleClientAction(ws, packet) {
 
     if (type === 'LEAVE_SESSION') {
         if (!ws.isInSession) return;
-        resetEntireSession(`A player explicitly left the session.`);
+        resetEntireSession('A player explicitly left the session.');
         return;
     }
 
@@ -156,7 +155,7 @@ function handleClientAction(ws, packet) {
         const pState = globalSession.gameState[ws.userId];
         if (!pState || pState.ready) return;
 
-        const { ships } = payload; 
+        const { ships } = payload;
         const tempBoard = createEmptyBoard();
 
         try {
@@ -164,7 +163,6 @@ function handleClientAction(ws, packet) {
                 for (let i = 0; i < ship.size; i++) {
                     let nx = ship.x + (ship.orientation === 'H' ? i : 0);
                     let ny = ship.y + (ship.orientation === 'V' ? i : 0);
-                    
                     if (nx < 0 || nx >= 10 || ny < 0 || ny >= 10 || tempBoard[ny][nx] !== 0) {
                         throw new Error('Collision encountered.');
                     }
@@ -176,6 +174,8 @@ function handleClientAction(ws, packet) {
         }
 
         pState.board = tempBoard;
+        // Save a deep copy of the original layout for end-game reveal
+        pState.originalBoard = tempBoard.map(row => [...row]);
         pState.ready = true;
         ws.send(JSON.stringify({ type: 'PLACEMENT_CONFIRMED' }));
 
@@ -192,44 +192,62 @@ function handleClientAction(ws, packet) {
     if (type === 'FIRE_SHOT') {
         if (globalSession.status !== 'BATTLE') return;
         const activePlayer = globalSession.players[globalSession.turnIdx];
-        if (activePlayer.userId !== ws.userId) return ws.send(JSON.stringify({ type: 'ERROR', message: 'Not your turn.' }));
+        if (activePlayer.userId !== ws.userId)
+            return ws.send(JSON.stringify({ type: 'ERROR', message: 'Not your turn.' }));
 
         const opponent = globalSession.players[(globalSession.turnIdx + 1) % 2];
         const { x, y } = payload;
 
         if (x < 0 || x >= 10 || y < 0 || y >= 10) return;
-        if (globalSession.gameState[ws.userId].hits[y][x] !== 0) return ws.send(JSON.stringify({ type: 'ERROR', message: 'Already targeted.' }));
+        if (globalSession.gameState[ws.userId].hits[y][x] !== 0)
+            return ws.send(JSON.stringify({ type: 'ERROR', message: 'Already targeted.' }));
 
         const targetCell = globalSession.gameState[opponent.userId].board[y][x];
         let hit = false;
 
         if (targetCell > 0) {
             hit = true;
-            globalSession.gameState[ws.userId].hits[y][x] = 2; 
+            globalSession.gameState[ws.userId].hits[y][x] = 2;
             globalSession.gameState[opponent.userId].board[y][x] = -1;
         } else {
-            globalSession.gameState[ws.userId].hits[y][x] = 1; 
+            globalSession.gameState[ws.userId].hits[y][x] = 1;
         }
 
-        const opponentDefeated = globalSession.gameState[opponent.userId].board.every(row => row.every(cell => cell <= 0));
+        const opponentDefeated = globalSession.gameState[opponent.userId].board
+            .every(row => row.every(cell => cell <= 0));
+
+        ws.send(JSON.stringify({ type: 'FIRE_RESULT', payload: { x, y, hit, target: 'opponent' } }));
+        opponent.send(JSON.stringify({ type: 'FIRE_RESULT', payload: { x, y, hit, target: 'self' } }));
 
         if (opponentDefeated) {
             globalSession.status = 'FINISHED';
-            // Send each player the opponent's ship layout for the reveal
-            const opponentBoard = globalSession.gameState[opponent.userId].board;
-            const opponentShipCells = [];
-            for (let ry = 0; ry < 10; ry++) {
-                for (let rx = 0; rx < 10; rx++) {
-                    if (opponentBoard[ry][rx] !== 0) opponentShipCells.push({ x: rx, y: ry });
+
+            // Build reveal data from originalBoard for both players
+            // Winner: sees where opponent's ships were (all cells from opponent's originalBoard)
+            // Loser: sees nothing extra (their own ships are already on screen)
+            const opponentOriginal = globalSession.gameState[opponent.userId].originalBoard;
+            const winnerRevealCells = [];
+            if (opponentOriginal) {
+                for (let ry = 0; ry < 10; ry++) {
+                    for (let rx = 0; rx < 10; rx++) {
+                        if (opponentOriginal[ry][rx] > 0) winnerRevealCells.push({ x: rx, y: ry });
+                    }
                 }
             }
-            globalSession.players.forEach(p => p.send(JSON.stringify({
-                type: 'GAME_OVER',
-                payload: {
-                    winner: ws.userId,
-                    opponentShipCells: p.userId === ws.userId ? opponentShipCells : []
-                }
-            })));
+
+            globalSession.players.forEach(p => {
+                const isWinner = p.userId === ws.userId;
+                p.send(JSON.stringify({
+                    type: 'GAME_OVER',
+                    payload: {
+                        winner: ws.userId,
+                        opponentShipCells: isWinner ? winnerRevealCells : []
+                    }
+                }));
+            });
+
+            // Give players 10s to see the board reveal before forcing reset
+            setTimeout(() => resetEntireSession('Game over. Resetting arena.'), 10000);
         } else {
             if (!hit) globalSession.turnIdx = (globalSession.turnIdx + 1) % 2;
             sendTurnUpdate();
@@ -238,4 +256,4 @@ function handleClientAction(ws, packet) {
 }
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Battleship Server executing on port ${PORT}`));
+server.listen(PORT, () => console.log(`Battleship Server on port ${PORT}`));
